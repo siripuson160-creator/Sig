@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="robots" content="noindex" />
+  <title>Signal Performance</title>
+  <link rel="stylesheet" href="/static/css/app.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2335c48b'/><path d='M7 22l6-7 5 4 7-9' stroke='%230c1017' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <h1>Signal Performance</h1>
+        <span class="sub" id="brand-sub">Gold signals · results in points</span>
+      </div>
+      <div class="status-pill" id="status-pill">
+        <span class="dot" id="status-dot"></span>
+        <span id="status-text">connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <div id="view"></div>
+  </main>
+
+  <script type="module" src="/static/js/dashboard.js"></script>
+</body>
+</html>

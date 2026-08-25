@@ -1,0 +1,47 @@
+# Production-shaped stack: PostgreSQL plus the bridge.
+#
+#   cd deploy && docker compose up -d
+#
+# Sign in to Telegram once before the first start, so the session file exists:
+#   docker compose run --rm bridge python -m app.cli login
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: signal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: signals
+      TZ: Asia/Bangkok
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signal -d signals"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bridge:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://signal:${POSTGRES_PASSWORD}@db:5432/signals
+      TELEGRAM_SESSION: /app/data/telegram.session
+    volumes:
+      # Telegram session + any CSV price files.
+      - bridge-data:/app/data
+    ports:
+      # Bind to localhost only; put nginx in front for TLS.
+      - "127.0.0.1:8000:8000"
+
+volumes:
+  db-data:
+  bridge-data:

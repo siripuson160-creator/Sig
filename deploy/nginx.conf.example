@@ -1,0 +1,51 @@
+# Reverse proxy for the dashboard.
+#
+# The public dashboard is read-only, but /admin must not be exposed to the
+# internet without protection: it is behind an API key, and this config adds
+# an IP allow-list on top. Adjust or replace with your own auth.
+
+# This directive belongs in the http { } block of nginx.conf, not here.
+# limit_req_zone $binary_remote_addr zone=dashboard:10m rate=20r/s;
+
+server {
+    listen 80;
+    server_name signals.example.com;
+    # Certbot will move this to 443 and add the certificate lines.
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name signals.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/signals.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/signals.example.com/privkey.pem;
+
+    # Members: dashboard and read-only API.
+    location / {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # Operators only.
+    location ~ ^/(admin|api/admin) {
+        allow 203.0.113.0/24;   # your office / VPN range
+        allow 127.0.0.1;
+        deny  all;
+
+        proxy_pass       http://127.0.0.1:8000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # A signal group's message volume is small; this only limits abuse.
+    # Requires the limit_req_zone directive shown at the top of this file.
+    limit_req zone=dashboard burst=40 nodelay;
+}

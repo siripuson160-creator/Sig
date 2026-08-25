@@ -1,0 +1,43 @@
+; systemd unit for the whole system (listener + LINE worker + result engine + API).
+;
+;   sudo cp deploy/signal-bridge.service /etc/systemd/system/
+;   sudo systemctl daemon-reload
+;   sudo systemctl enable --now signal-bridge
+;   journalctl -u signal-bridge -f
+;
+; Run `python -m app.cli login` as the same user first, so the Telegram
+; session file exists before the service starts.
+
+[Unit]
+Description=Telegram -> LINE signal bridge and dashboard
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=signal
+Group=signal
+WorkingDirectory=/opt/signal
+EnvironmentFile=/opt/signal/.env
+ExecStart=/opt/signal/.venv/bin/python -m app.main
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# The process only ever needs its own directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/signal/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=signal-bridge
+
+[Install]
+WantedBy=multi-user.target
