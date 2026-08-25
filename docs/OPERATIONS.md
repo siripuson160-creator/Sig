@@ -7,20 +7,36 @@ Day-to-day running of the Telegram → LINE bridge and dashboard.
 ## First-time setup on a fresh Ubuntu VPS
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh | sudo bash
+```
+
+That is the whole thing. The installer creates the `signal` user and
+`/opt/signal`, installs dependencies, runs the setup wizard, signs you in to
+Telegram, lets you pick the source group, and starts the service.
+
+Useful flags:
+
+```bash
+sudo bash scripts/install.sh --dir /srv/signal   # install somewhere else
+sudo bash scripts/install.sh --skip-setup        # update code and deps only
+sudo bash scripts/install.sh --service-only      # rewrite and restart the unit
+```
+
+Re-run it any time to update: `.env`, the Telegram session and the database
+are left alone.
+
+### Doing it by hand
+
+```bash
 sudo adduser --system --group --home /opt/signal signal
 sudo -u signal git clone <repo> /opt/signal
 cd /opt/signal
 sudo -u signal python3 -m venv .venv
 sudo -u signal .venv/bin/pip install -r requirements.txt
 
-sudo -u signal cp .env.example .env
-sudo -u signal chmod 600 .env
-sudo -u signal nano .env          # fill in credentials
-
+# Asks the configuration questions, writes .env, signs in, picks the group.
 # Interactive: the account owner types the Telegram code here.
-sudo -u signal .venv/bin/python -m app.cli login
-sudo -u signal .venv/bin/python -m app.cli chats     # note the group id
-sudo -u signal nano .env                             # TELEGRAM_SOURCE_CHAT_ID
+sudo -u signal .venv/bin/python -m app.cli setup
 sudo -u signal .venv/bin/python -m app.cli check
 
 sudo cp deploy/signal-bridge.service /etc/systemd/system/

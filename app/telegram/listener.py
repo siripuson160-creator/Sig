@@ -33,6 +33,26 @@ class TelegramNotAuthorized(RuntimeError):
     pass
 
 
+class TelegramUnreachable(RuntimeError):
+    pass
+
+
+async def connect_with_timeout(client: TelegramClient, seconds: float = 20.0) -> None:
+    """Connect, but give up instead of retrying forever.
+
+    The listener is configured to reconnect indefinitely, which is right for
+    the daemon but wrong for the CLI: on a VPS with Telegram blocked, `check`
+    would hang with no output at all.
+    """
+    try:
+        await asyncio.wait_for(client.connect(), timeout=seconds)
+    except asyncio.TimeoutError as exc:
+        raise TelegramUnreachable(
+            f"could not reach Telegram within {seconds:.0f}s — check the server's outbound "
+            "network access or firewall"
+        ) from exc
+
+
 def build_client() -> TelegramClient:
     if not settings.telegram_api_id or not settings.telegram_api_hash:
         raise RuntimeError("TELEGRAM_API_ID / TELEGRAM_API_HASH are not configured")
