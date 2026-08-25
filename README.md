@@ -40,39 +40,84 @@ with `--only`:
 
 ---
 
-## Quick start
+## Install on a VPS
+
+One command on a fresh Ubuntu/Debian server:
 
 ```bash
-git clone <this repo> /opt/signal && cd /opt/signal
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-
-cp .env.example .env && chmod 600 .env
-# Fill in TELEGRAM_API_ID / TELEGRAM_API_HASH from https://my.telegram.org
-# and the LINE credentials. Leave PRICE_DATA_PROVIDER=none for now.
-
-.venv/bin/python -m app.cli login    # you type the code Telegram sends you
-.venv/bin/python -m app.cli chats    # find the source group's chat id
-# put that id in TELEGRAM_SOURCE_CHAT_ID
-
-.venv/bin/python -m app.cli check    # verify everything is wired up
-.venv/bin/python -m app.main         # run it
+curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh | sudo bash
 ```
 
+It installs what is missing, puts the code in `/opt/signal` under a dedicated
+`signal` user, then asks you a short list of questions:
+
+```
+1. Telegram      API ID and API hash from https://my.telegram.org
+2. LINE          channel access token and group id
+3. Database      SQLite (one file) or PostgreSQL
+4. Price data    none / CSV files / Twelve Data
+5. Scoring       what counts as a win in the awkward cases
+6. Dashboard     port, timezone, and an admin key it generates for you
+```
+
+Then it signs you in to Telegram — **you type the code**, it is never stored —
+lets you pick the source group from a menu, installs the systemd service and
+starts it. At the end it prints your dashboard URL and admin key.
+
+Re-running the same command is safe: it updates the code and dependencies and
+keeps your `.env`, your Telegram session and your database.
+
+Already have a clone?
+
+```bash
+sudo bash scripts/install.sh
+```
+
+### ติดตั้งบน VPS (ภาษาไทย)
+
+รันคำสั่งเดียวบน Ubuntu ที่เพิ่งเปิดใหม่:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh | sudo bash
+```
+
+ตัวติดตั้งจะลงของที่ขาด สร้าง user `signal` วางโค้ดไว้ที่ `/opt/signal`
+แล้วถามคำถามสั้นๆ (Telegram, LINE, ฐานข้อมูล, ราคา, กฎการนับผล, พอร์ต)
+จากนั้นจะให้ล็อกอิน Telegram — **คุณกรอก OTP เอง ระบบไม่เก็บไว้** —
+เลือกกลุ่มต้นทางจากเมนู ติดตั้ง service แล้วเริ่มรันให้เลย
+ตอนจบจะบอก URL ของ dashboard และรหัส admin
+
+รันซ้ำได้ปลอดภัย ระบบจะอัปเดตโค้ดให้ แต่ไม่แตะ `.env`, session ของ Telegram
+และฐานข้อมูลเดิม
+
+ถ้ายังไม่มีข้อมูลราคา เลือก `none` ได้ ระบบจะเก็บ signal ไว้และแสดง `PENDING`
+จนกว่าจะต่อ price provider แล้วจึงย้อนกลับไปตัดสินผลย้อนหลังให้
+
+คำสั่งที่ใช้บ่อย:
+
+```bash
+sudo systemctl status signal-bridge     # ดูสถานะ
+sudo journalctl -u signal-bridge -f     # ดู log สด
+sudo systemctl restart signal-bridge    # รีสตาร์ท
+```
+
+## Manual install
+
+If you would rather do it by hand, or you are running it on your own machine:
+
+```bash
+git clone <this repo> && cd Sig
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+
+.venv/bin/python -m app.cli setup        # writes .env, signs in, picks the group
+.venv/bin/python -m app.main             # run it
+```
+
+`setup` does everything the installer's questions do. To fill in `.env`
+yourself instead, copy `.env.example` to `.env` and then run
+`python -m app.cli login` and `python -m app.cli chats --pick`.
+
 Open `http://localhost:8000/dashboard`.
-
-### เริ่มใช้งานอย่างย่อ (ภาษาไทย)
-
-1. `cp .env.example .env` แล้วกรอก `TELEGRAM_API_ID` / `TELEGRAM_API_HASH`
-   (ขอได้ที่ https://my.telegram.org) และ token ของ LINE
-2. รัน `python -m app.cli login` — **คุณเป็นคนกรอก OTP และรหัส 2FA เอง**
-   ระบบไม่เก็บและไม่ส่งต่อให้ใคร
-3. รัน `python -m app.cli chats` เพื่อดู chat id ของกลุ่มต้นทาง
-   แล้วใส่ใน `TELEGRAM_SOURCE_CHAT_ID`
-4. รัน `python -m app.cli check` เพื่อตรวจการตั้งค่า
-5. รัน `python -m app.main` แล้วเปิด `/dashboard`
-
-ถ้ายังไม่มีข้อมูลราคา ให้ตั้ง `PRICE_DATA_PROVIDER=none` ระบบจะเก็บ signal ไว้
-และแสดงสถานะ `PENDING` จนกว่าจะต่อ price provider แล้วจึงย้อนกลับไปตัดสินผลให้
 
 ---
 
@@ -283,17 +328,19 @@ The ones worth thinking about:
 ## Operations
 
 ```bash
+python -m app.cli setup       # re-run the guided configuration
 python -m app.cli check       # configuration and connectivity
-python -m app.cli chats       # list groups and their ids
+python -m app.cli chats --pick  # change the source group
 python -m app.cli evaluate    # run the result engine once
 python -m app.cli drain       # flush the LINE queue once
 python -m app.cli stats       # print the overview as JSON
 python -m app.main --only api # run just the web tier
 ```
 
-Deployment files are in [`deploy/`](deploy/): a systemd unit, a Dockerfile, a
-`docker-compose.yml` with PostgreSQL, and an nginx sample that keeps `/admin`
-behind an IP allow-list. The runbook — backups, log locations, common failures
+`scripts/install.sh` also handles updates and can reinstall just the service
+(`--service-only`). Other deployment files are in [`deploy/`](deploy/): a
+Dockerfile, a `docker-compose.yml` with PostgreSQL, and an nginx sample that
+keeps `/admin` behind an IP allow-list. The runbook — backups, log locations, common failures
 — is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ---
