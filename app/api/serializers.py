@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from app.config import settings
-from app.db.models import Signal, SignalVersion, TelegramMessage
+from app.db.models import AuditLog, Signal, SignalVersion, TelegramMessage
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -21,8 +21,23 @@ def _value(value):
     return value.value if isinstance(value, Enum) else value
 
 
+def _risk_reward(signal: Signal) -> dict:
+    """Planned risk and reward in points, from the posted levels (section 32)."""
+    point = settings.point_size or 1.0
+    risk = abs(signal.entry - signal.sl) / point if signal.entry is not None and signal.sl is not None else None
+    reward = abs(signal.tp1 - signal.entry) / point if signal.entry is not None and signal.tp1 is not None else None
+    ratio = round(reward / risk, 2) if risk and reward is not None else None
+    return {
+        "risk_points": round(risk, 2) if risk is not None else None,
+        "reward_points": round(reward, 2) if reward is not None else None,
+        "rr_ratio": ratio,
+        "rr_display": f"1:{ratio}" if ratio else None,
+    }
+
+
 def signal_summary(signal: Signal) -> dict:
     return {
+        **_risk_reward(signal),
         "signal_id": signal.signal_id,
         "direction": _value(signal.direction),
         "symbol": signal.symbol,
@@ -69,6 +84,22 @@ def signal_detail(signal: Signal, versions: list[SignalVersion], messages: list[
     ]
     payload["message_history"] = [telegram_message(m) for m in messages]
     return payload
+
+
+def audit_entry(entry: AuditLog) -> dict:
+    return {
+        "id": entry.id,
+        "ts": _iso(entry.ts),
+        "event": _value(entry.event),
+        "entity_type": entry.entity_type,
+        "entity_id": entry.entity_id,
+        "summary": entry.summary,
+        "actor": entry.actor,
+        "old_value": entry.old_value,
+        "new_value": entry.new_value,
+        "reason": entry.reason,
+        "source_ip": entry.source_ip,
+    }
 
 
 def telegram_message(message: TelegramMessage, *, include_delivery: bool = True) -> dict:

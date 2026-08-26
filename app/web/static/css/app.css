@@ -252,6 +252,16 @@ td.right, th.right { text-align: right; }
 .kv .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
 .kv .v { font-size: 16px; margin-top: 3px; }
 
+/* Audit diffs are unbroken JSON, so they need an explicit break rule or they
+   push the neighbouring columns off the table. */
+.diff {
+  font-family: var(--mono);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
 .timeline { position: relative; padding-left: 26px; }
 .timeline::before { content: ""; position: absolute; left: 7px; top: 6px; bottom: 6px; width: 1px; background: var(--border); }
 .timeline-item { position: relative; padding-bottom: 20px; }

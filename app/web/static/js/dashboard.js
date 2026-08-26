@@ -32,10 +32,37 @@ const TABS = [
 const state = {
   tab: 'overview',
   range: 'all',
+  dateFrom: '',
+  dateTo: '',
   signalId: null,
   signalPage: 0,
   signalFilter: { status: '', direction: '', result: '' },
 };
+
+/** Period selectors from sections 29 and 40. */
+const RANGES = [
+  ['today', 'Today'],
+  ['yesterday', 'Yesterday'],
+  ['7d', '7 days'],
+  ['30d', '30 days'],
+  ['wtd', 'This week'],
+  ['mtd', 'This month'],
+  ['3m', '3 months'],
+  ['6m', '6 months'],
+  ['1y', '1 year'],
+  ['ytd', 'This year'],
+  ['all', 'All time'],
+];
+
+/** Appends range + custom dates to any API call. */
+function rangeQuery(extra = {}) {
+  const params = new URLSearchParams({ range: state.range, ...extra });
+  if (state.range === 'custom') {
+    if (state.dateFrom) params.set('date_from', state.dateFrom);
+    if (state.dateTo) params.set('date_to', state.dateTo);
+  }
+  return params;
+}
 
 const view = document.getElementById('view');
 
@@ -75,27 +102,47 @@ function renderTabs() {
 }
 
 function rangePicker(onChange) {
-  const options = [
-    ['today', 'Today'],
-    ['7d', '7 days'],
-    ['30d', '30 days'],
-    ['mtd', 'This month'],
-    ['all', 'All time'],
-  ];
-  return el(
-    'div',
-    { class: 'segmented' },
-    options.map(([value, label]) =>
-      el('button', {
-        class: state.range === value ? 'active' : '',
-        text: label,
-        onclick: () => {
-          state.range = value;
-          onChange();
-        },
-      })
-    )
+  const select = el(
+    'select',
+    {
+      class: 'select',
+      onchange: (event) => {
+        state.range = event.target.value;
+        onChange();
+      },
+    },
+    [
+      ...RANGES.map(([value, label]) =>
+        el('option', { value, text: label, selected: state.range === value })
+      ),
+      el('option', { value: 'custom', text: 'Custom range…', selected: state.range === 'custom' }),
+    ]
   );
+
+  const wrap = el('div', { class: 'row', style: 'gap:8px' }, [select]);
+
+  if (state.range === 'custom') {
+    const from = el('input', {
+      class: 'input',
+      type: 'date',
+      value: state.dateFrom,
+      onchange: (event) => {
+        state.dateFrom = event.target.value;
+        onChange();
+      },
+    });
+    const to = el('input', {
+      class: 'input',
+      type: 'date',
+      value: state.dateTo,
+      onchange: (event) => {
+        state.dateTo = event.target.value;
+        onChange();
+      },
+    });
+    wrap.append(from, el('span', { class: 'faint small', text: 'to' }), to);
+  }
+  return wrap;
 }
 
 /* -------------------------------------------------------------- overview */
@@ -109,8 +156,8 @@ function card(label, value, { tone = '', hint = '', unit = '' } = {}) {
 
 async function renderOverview() {
   const [overview, analytics, daily] = await Promise.all([
-    api(`/api/public/overview?range=${state.range}`),
-    api(`/api/public/analytics?range=${state.range}`),
+    api(`/api/public/overview?${rangeQuery()}`),
+    api(`/api/public/analytics?${rangeQuery()}`),
     api('/api/public/performance/daily?limit=30'),
   ]);
 
@@ -210,8 +257,46 @@ async function renderOverview() {
     card('Best / Worst', `${points(overview.best_points)} / ${points(overview.worst_points)}`),
     card('Longest Win Streak', String(overview.longest_win_streak)),
     card('Longest Loss Streak', String(overview.longest_loss_streak)),
+    card('Avg Risk', points(overview.avg_risk_points, { signed: false }), { unit: 'Points' }),
+    card('Avg Reward', points(overview.avg_reward_points, { signed: false }), { unit: 'Points' }),
+    card('Risk : Reward', overview.rr_display || '—', { hint: 'from the posted entry, SL and TP1' }),
   ]);
   root.append(secondary);
+
+  root.append(
+    panel('How far trades ran', [
+      el('div', { class: 'cards' }, [
+        card('TP1 Hit', String(overview.tp1_hit ?? 0), { tone: 'pos' }),
+        card('TP2 Hit', String(overview.tp2_hit ?? 0), { tone: 'pos' }),
+        card('TP3 Hit', String(overview.tp3_hit ?? 0), { tone: 'pos' }),
+        card('SL Hit', String(overview.sl_hit ?? 0), { tone: 'neg' }),
+      ]),
+      el('div', {
+        class: 'panel-note',
+        style: 'margin-top:12px',
+        text: `Counting rule — ${overview.tp_counting_rule || 'cumulative'}.`,
+      }),
+    ])
+  );
+
+  root.append(disclaimerPanel());
+}
+
+const DISCLAIMER =
+  'Trading involves significant risk. Historical signal performance does not guarantee future results. ' +
+  'Actual trading results may differ due to spread, slippage, commissions, execution speed, liquidity and ' +
+  'other market conditions. Displayed performance is based on the stated calculation methodology and is ' +
+  'not a guarantee of future profitability.';
+
+function disclaimerPanel() {
+  return el('div', { class: 'panel', style: 'margin-top:24px' }, [
+    el('div', { class: 'panel-body' }, [
+      el('div', { class: 'small faint', style: 'line-height:1.6' }, [
+        el('strong', { text: 'Risk disclaimer. ' }),
+        DISCLAIMER,
+      ]),
+    ]),
+  ]);
 }
 
 function panel(title, children, extraHead = null) {
@@ -226,7 +311,7 @@ const PAGE_SIZE = 25;
 
 async function renderSignals() {
   const root = clear(view);
-  const query = new URLSearchParams({
+  const query = rangeQuery({
     limit: String(PAGE_SIZE),
     offset: String(state.signalPage * PAGE_SIZE),
     complete_only: 'false',
@@ -236,23 +321,50 @@ async function renderSignals() {
   }
   const data = await api(`/api/public/signals?${query}`);
 
-  const filters = el('div', { class: 'row spacer', style: 'margin-left:auto' }, [
-    select('All results', state.signalFilter.result, [
-      ['WIN', 'Win'],
-      ['LOSS', 'Loss'],
-      ['PENDING_RESULT', 'Open'],
-      ['AMBIGUOUS', 'Ambiguous'],
-      ['CANCELLED', 'Cancelled'],
-    ], (value) => {
-      state.signalFilter.result = value;
-      state.signalPage = 0;
-      renderSignals();
-    }),
-    select('Both directions', state.signalFilter.direction, [
-      ['BUY', 'Buy'],
-      ['SELL', 'Sell'],
-    ], (value) => {
-      state.signalFilter.direction = value;
+  const refilter = (key, value) => {
+    state.signalFilter[key] = value;
+    state.signalPage = 0;
+    renderSignals();
+  };
+
+  const filters = el('div', { class: 'row', style: 'margin-left:auto;gap:8px' }, [
+    select(
+      'All results',
+      state.signalFilter.result,
+      [
+        ['WIN', 'Win'],
+        ['LOSS', 'Loss'],
+        ['PENDING_RESULT', 'Open'],
+        ['AMBIGUOUS', 'Ambiguous'],
+        ['CANCELLED', 'Cancelled'],
+      ],
+      (value) => refilter('result', value)
+    ),
+    select(
+      'Any status',
+      state.signalFilter.status,
+      [
+        ['TP1_HIT', 'TP1 hit'],
+        ['TP2_HIT', 'TP2 hit'],
+        ['TP3_HIT', 'TP3 hit'],
+        ['SL_HIT', 'SL hit'],
+        ['ACTIVE', 'Active'],
+        ['PENDING', 'Pending'],
+        ['CLOSED', 'Closed'],
+        ['CANCELLED', 'Cancelled'],
+      ],
+      (value) => refilter('status', value)
+    ),
+    select(
+      'Both directions',
+      state.signalFilter.direction,
+      [
+        ['BUY', 'Buy'],
+        ['SELL', 'Sell'],
+      ],
+      (value) => refilter('direction', value)
+    ),
+    rangePicker(() => {
       state.signalPage = 0;
       renderSignals();
     }),
@@ -389,6 +501,15 @@ async function renderSignalDetail() {
           kv('Entry filled', dateTime(signal.entry_filled_at)),
           kv('Resolved', dateTime(signal.resolved_at)),
           kv('Price source', signal.price_source || '—'),
+          kv('Risk', signal.risk_points === null ? '—' : `${points(signal.risk_points, { signed: false })} pts`),
+          kv('Reward', signal.reward_points === null ? '—' : `${points(signal.reward_points, { signed: false })} pts`),
+          kv('Risk : Reward', signal.rr_display || '—'),
+        ]),
+        el('div', { class: 'detail-grid', style: 'margin-top:12px' }, [
+          kv('Signal ID', signal.signal_id),
+          kv('Telegram message ID', String(signal.telegram_message_id)),
+          kv('Telegram chat ID', String(signal.telegram_chat_id)),
+          kv('Version', `v${signal.source_version}`),
         ]),
         signal.note
           ? el('div', { class: 'notice warn', style: 'margin-top:16px' }, [
@@ -576,7 +697,7 @@ function cap(word) {
 /* ------------------------------------------------------------- analytics */
 async function renderAnalytics() {
   const root = clear(view);
-  const data = await api(`/api/public/analytics?range=${state.range}`);
+  const data = await api(`/api/public/analytics?${rangeQuery()}`);
 
   root.append(
     el('div', { class: 'row', style: 'justify-content:flex-end;margin-bottom:16px' }, [rangePicker(render)])
@@ -706,7 +827,11 @@ async function renderMethodology() {
           'ul',
           {},
           data.parsers.map((parser) =>
-            el('li', {}, [el('strong', { text: parser.name }), ` — ${parser.doc.split('\n')[0]}`])
+            el('li', {}, [
+              el('strong', { text: parser.name }),
+              // Docstrings use reST double backticks; strip them for display.
+              ` — ${parser.doc.split('\n')[0].replace(/``?/g, '')}`,
+            ])
           )
         ),
         el('h3', { text: 'What is not shown' }),
@@ -721,23 +846,83 @@ async function renderMethodology() {
                 'a price provider is connected, at which point they are evaluated against historical prices.',
             ])
           : null,
+        el('h3', { text: 'What cannot happen' }),
+        el('ul', {}, [
+          el('li', { text: 'A losing signal cannot be deleted or hidden; there is no delete route.' }),
+          el('li', { text: 'Entry, stop and target cannot be rewritten after the fact to improve a result.' }),
+          el('li', { text: 'Statistics cannot be typed in by an administrator — they are computed from the signals table.' }),
+          el('li', { text: 'Edit history cannot be removed; every version of every message is kept.' }),
+          el('li', {
+            text: 'A correction made by hand is written to the audit log with the old value, the new value, who changed it, when, and why.',
+          }),
+        ]),
+        el('h3', { text: 'Risk disclaimer' }),
+        el('p', { text: data.disclaimer || DISCLAIMER }),
       ]),
     ])
   );
 }
 
 /* ------------------------------------------------------------------ boot */
+let refreshSeconds = 10;
+
 async function updateStatus() {
   const dot = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
   try {
     const health = await api('/api/public/health');
+    refreshSeconds = health.refresh_seconds || refreshSeconds;
     dot.className = 'dot ok';
     text.textContent = `${health.signals} signals · ${health.messages} messages`;
+    if (health.dry_run) text.textContent += ' · test mode';
+    return health;
   } catch (_) {
     dot.className = 'dot bad';
     text.textContent = 'offline';
+    return null;
   }
+}
+
+/**
+ * Keeps the page current (section 47): a server-sent event when the data
+ * changes, and a plain poll as the fallback if the stream is unavailable.
+ */
+function watchForChanges() {
+  let fingerprint = null;
+  let pollTimer = null;
+
+  const onChange = (next) => {
+    if (fingerprint !== null && next !== fingerprint) render();
+    fingerprint = next;
+    updateStatus();
+  };
+
+  const startPolling = () => {
+    if (pollTimer) return;
+    pollTimer = setInterval(async () => {
+      const health = await updateStatus();
+      if (health) onChange(`${health.signals}:${health.messages}`);
+    }, Math.max(5, refreshSeconds) * 1000);
+  };
+
+  if (typeof EventSource === 'undefined') {
+    startPolling();
+    return;
+  }
+
+  const source = new EventSource('/api/public/stream');
+  source.addEventListener('changed', (event) => {
+    try {
+      onChange(JSON.parse(event.data).fingerprint);
+    } catch (_) {
+      /* malformed frame; the next one will do */
+    }
+  });
+  source.onerror = () => {
+    // The browser retries on its own; polling covers the gap and any proxy
+    // that buffers event streams.
+    startPolling();
+  };
 }
 
 const RENDERERS = {
@@ -771,5 +956,4 @@ async function render() {
 
 window.addEventListener('hashchange', render);
 render();
-updateStatus();
-setInterval(updateStatus, 30000);
+updateStatus().then(watchForChanges);

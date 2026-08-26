@@ -10,16 +10,17 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
+from app import audit
 from app.config import settings
-from app.db.models import DeliveryStatus, TelegramMessage, utcnow
+from app.db.models import AuditEvent, ComponentStatus, DeliveryStatus, TelegramMessage, utcnow
 from app.db.session import session_scope
 from app.line.client import LineClient, LineConfigError, retry_key
 from app.processor.message_processor import pending_deliveries, render_line_text
 
 log = logging.getLogger(__name__)
 
-#: Attempt N waits this many seconds before being retried.
-_BACKOFF_SECONDS = [2, 5, 15, 60, 300]
+#: Attempt N waits this many seconds before the next try (section 50).
+_BACKOFF_SECONDS = [2, 5, 10]
 
 
 class LineQueueWorker:
@@ -35,8 +36,13 @@ class LineQueueWorker:
         self._stop.set()
 
     async def run(self) -> None:
+        if settings.dry_run:
+            log.warning("DRY_RUN=true: messages are received, parsed and stored but never sent to LINE")
+            await self._idle("dry run")
+            return
         if not settings.line_enabled:
             log.warning("LINE delivery disabled (LINE_ENABLED=false); messages will be stored only")
+            await self._idle("delivery disabled")
             return
 
         async with LineClient() if self._client is None else _null_ctx(self._client) as client:
@@ -47,6 +53,7 @@ class LineQueueWorker:
                 except Exception:  # pragma: no cover - keep the worker alive
                     log.exception("LINE worker iteration failed")
                     sent = 0
+                await audit.heartbeat("line", ComponentStatus.UP)
                 # Poll faster while there is a backlog.
                 delay = 0.2 if sent else settings.line_worker_interval_seconds
                 try:
@@ -54,6 +61,21 @@ class LineQueueWorker:
                 except asyncio.TimeoutError:
                     pass
             log.info("LINE queue worker stopped")
+
+    async def _idle(self, reason: str) -> None:
+        """Stay alive with nothing to send.
+
+        Returning here would look like a component exiting, which stops the
+        whole supervisor — and test mode must not take the listener and the
+        dashboard down with it.
+        """
+        while not self._stop.is_set():
+            await audit.heartbeat("line", ComponentStatus.DEGRADED, reason)
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=30)
+            except asyncio.TimeoutError:
+                pass
+        log.info("LINE queue worker stopped (%s)", reason)
 
     async def drain_once(self, client: LineClient) -> int:
         """Send every message currently queued. Returns how many were sent."""
@@ -67,7 +89,7 @@ class LineQueueWorker:
 
             sent = 0
             for message in batch:
-                delivered = await self._deliver(client, message)
+                delivered = await self._deliver(client, message, session)
                 if delivered:
                     sent += 1
                 else:
@@ -76,7 +98,7 @@ class LineQueueWorker:
                     break
             return sent
 
-    async def _deliver(self, client: LineClient, message: TelegramMessage) -> bool:
+    async def _deliver(self, client: LineClient, message: TelegramMessage, session=None) -> bool:
         text = render_line_text(message)
         if not text.strip():
             message.status = DeliveryStatus.SKIPPED
@@ -103,6 +125,7 @@ class LineQueueWorker:
             message.sent_at = utcnow()
             message.line_message_id = result.message_id
             message.last_error = None
+            log.info("LINE message sent: %s", message.line_message_id)
             log.info(
                 "delivered %s/%s v%s to LINE (%s)",
                 message.chat_id,
@@ -110,6 +133,15 @@ class LineQueueWorker:
                 message.version,
                 message.line_message_id,
             )
+            if session is not None:
+                await audit.record(
+                    session,
+                    AuditEvent.LINE_SEND,
+                    entity_type="message",
+                    entity_id=f"{message.chat_id}/{message.message_id}v{message.version}",
+                    summary=f"Delivered to LINE ({message.line_message_id})",
+                    actor="line-worker",
+                )
             return True
 
         message.last_error = f"{result.status_code}: {result.error}"[:2000]
@@ -123,6 +155,16 @@ class LineQueueWorker:
                 message.send_attempts,
                 message.last_error,
             )
+            if session is not None:
+                await audit.record(
+                    session,
+                    AuditEvent.LINE_FAILED,
+                    entity_type="message",
+                    entity_id=f"{message.chat_id}/{message.message_id}v{message.version}",
+                    summary=f"LINE delivery failed after {message.send_attempts} attempts",
+                    reason=message.last_error,
+                    actor="line-worker",
+                )
             # A permanently failed message must not block the queue behind it.
             return True
 

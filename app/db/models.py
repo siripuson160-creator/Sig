@@ -99,6 +99,30 @@ class SignalStatus(str, enum.Enum):
     AMBIGUOUS = "AMBIGUOUS"  # TP and SL in the same candle, unresolvable
 
 
+class AuditEvent(str, enum.Enum):
+    """Everything section 44 requires a record of."""
+
+    SIGNAL_CREATED = "SIGNAL_CREATED"
+    SIGNAL_EDITED = "SIGNAL_EDITED"
+    SIGNAL_RESULT_UPDATED = "SIGNAL_RESULT_UPDATED"
+    TP_HIT = "TP_HIT"
+    SL_HIT = "SL_HIT"
+    SIGNAL_CANCELLED = "SIGNAL_CANCELLED"
+    ADMIN_LOGIN = "ADMIN_LOGIN"
+    ADMIN_LOGIN_FAILED = "ADMIN_LOGIN_FAILED"
+    ADMIN_ACTION = "ADMIN_ACTION"
+    LINE_SEND = "LINE_SEND"
+    LINE_FAILED = "LINE_FAILED"
+    TELEGRAM_RECONNECT = "TELEGRAM_RECONNECT"
+    SYSTEM = "SYSTEM"
+
+
+class ComponentStatus(str, enum.Enum):
+    UP = "UP"
+    DOWN = "DOWN"
+    DEGRADED = "DEGRADED"
+
+
 class SignalResult(str, enum.Enum):
     PENDING_RESULT = "PENDING_RESULT"
     WIN = "WIN"
@@ -115,6 +139,8 @@ def _enum_col(py_enum: type[enum.Enum], name: str) -> Enum:
 
 
 EventTypeCol = _enum_col(EventType, "event_type")
+AuditEventCol = _enum_col(AuditEvent, "audit_event")
+ComponentStatusCol = _enum_col(ComponentStatus, "component_status")
 DeliveryStatusCol = _enum_col(DeliveryStatus, "delivery_status")
 DirectionCol = _enum_col(Direction, "direction")
 SignalStatusCol = _enum_col(SignalStatus, "signal_status")
@@ -264,6 +290,51 @@ class PriceCandle(Base):
         UniqueConstraint("provider", "symbol", "timeframe", "ts", name="uq_candle"),
         Index("ix_candle_lookup", "provider", "symbol", "timeframe", "ts"),
     )
+
+
+class AuditLog(Base):
+    """Append-only record of everything that changes a number (sections 44, 46).
+
+    Nothing in the application deletes or updates rows here. When a value is
+    corrected by hand, the old value, the new value, who did it, when and why
+    are all captured so a published figure can always be traced back.
+    """
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    event: Mapped[AuditEvent] = mapped_column(AuditEventCol, nullable=False)
+    # What the event is about: "signal", "message", "admin", "system".
+    entity_type: Mapped[str] = mapped_column(String(24), default="system", nullable=False)
+    entity_id: Mapped[str | None] = mapped_column(String(64))
+    summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    actor: Mapped[str] = mapped_column(String(64), default="system", nullable=False)
+    old_value: Mapped[dict | None] = mapped_column(JSON)
+    new_value: Mapped[dict | None] = mapped_column(JSON)
+    reason: Mapped[str | None] = mapped_column(Text)
+    source_ip: Mapped[str | None] = mapped_column(String(64))
+
+    __table_args__ = (
+        Index("ix_audit_ts", "ts"),
+        Index("ix_audit_event", "event"),
+        Index("ix_audit_entity", "entity_type", "entity_id"),
+    )
+
+
+class ComponentHeartbeat(Base):
+    """Liveness of each component, for the admin status lights (section 56).
+
+    Written to the database rather than kept in memory so the API can report on
+    the listener even when they run as separate processes.
+    """
+
+    __tablename__ = "component_heartbeats"
+
+    component: Mapped[str] = mapped_column(String(32), primary_key=True)
+    status: Mapped[ComponentStatus] = mapped_column(ComponentStatusCol, default=ComponentStatus.UP, nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text)
+    last_seen: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
 
 
 class AppSetting(Base):

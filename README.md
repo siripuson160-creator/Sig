@@ -48,6 +48,13 @@ One command on a fresh Ubuntu/Debian server:
 curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh | sudo bash
 ```
 
+For HTTPS on your own domain, point its DNS at the server first and add:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo bash -s -- --domain signals.example.com --email you@example.com
+```
+
 It installs what is missing, puts the code in `/opt/signal` under a dedicated
 `signal` user, then asks you a short list of questions:
 
@@ -60,12 +67,23 @@ It installs what is missing, puts the code in `/opt/signal` under a dedicated
 6. Dashboard     port, timezone, and an admin key it generates for you
 ```
 
-Then it signs you in to Telegram — **you type the code**, it is never stored —
-lets you pick the source group from a menu, installs the systemd service and
-starts it. At the end it prints your dashboard URL and admin key.
+Then it:
+
+- signs you in to Telegram — **you type the code**, it is never stored
+- lets you pick the source group from a menu
+- installs the systemd service and starts it (so it survives a reboot)
+- sets up nginx and a Let's Encrypt certificate if you gave a domain, and binds
+  the app to `127.0.0.1` so it is only reachable through nginx
+- schedules the daily and weekly backups
+- checks that the dashboard actually answers, and prints the URL and password
 
 Re-running the same command is safe: it updates the code and dependencies and
 keeps your `.env`, your Telegram session and your database.
+
+```bash
+sudo bash /opt/signal/scripts/install.sh --skip-setup   # update to the latest
+sudo bash /opt/signal/scripts/install.sh --domain your.domain --email you@x.com  # add HTTPS later
+```
 
 Already have a clone?
 
@@ -81,14 +99,32 @@ sudo bash scripts/install.sh
 curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh | sudo bash
 ```
 
+ถ้ามีโดเมนและอยากได้ HTTPS (ชี้ DNS มาที่เครื่องก่อน):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo bash -s -- --domain signals.example.com --email you@example.com
+```
+
 ตัวติดตั้งจะลงของที่ขาด สร้าง user `signal` วางโค้ดไว้ที่ `/opt/signal`
 แล้วถามคำถามสั้นๆ (Telegram, LINE, ฐานข้อมูล, ราคา, กฎการนับผล, พอร์ต)
-จากนั้นจะให้ล็อกอิน Telegram — **คุณกรอก OTP เอง ระบบไม่เก็บไว้** —
-เลือกกลุ่มต้นทางจากเมนู ติดตั้ง service แล้วเริ่มรันให้เลย
-ตอนจบจะบอก URL ของ dashboard และรหัส admin
+จากนั้นจะ:
+
+- ให้ล็อกอิน Telegram — **คุณกรอก OTP เอง ระบบไม่เก็บไว้**
+- ให้เลือกกลุ่มต้นทางจากเมนู
+- ติดตั้ง service แล้วเริ่มรัน (รีบูตแล้วขึ้นเองอัตโนมัติ)
+- ถ้าใส่โดเมน จะติดตั้ง nginx + ใบรับรอง Let's Encrypt ให้ และผูกแอปไว้ที่
+  `127.0.0.1` เพื่อให้เข้าได้ทาง nginx ทางเดียว
+- ตั้ง backup อัตโนมัติ (รายวัน + รายสัปดาห์)
+- ตรวจว่า dashboard ตอบจริง แล้วบอก URL กับรหัสผ่าน admin
 
 รันซ้ำได้ปลอดภัย ระบบจะอัปเดตโค้ดให้ แต่ไม่แตะ `.env`, session ของ Telegram
 และฐานข้อมูลเดิม
+
+```bash
+sudo bash /opt/signal/scripts/install.sh --skip-setup   # อัปเดตโค้ดอย่างเดียว
+sudo bash /opt/signal/scripts/install.sh --domain your.domain --email you@x.com  # เพิ่ม HTTPS ทีหลัง
+```
 
 ถ้ายังไม่มีข้อมูลราคา เลือก `none` ได้ ระบบจะเก็บ signal ไว้และแสดง `PENDING`
 จนกว่าจะต่อ price provider แล้วจึงย้อนกลับไปตัดสินผลย้อนหลังให้
@@ -96,10 +132,19 @@ curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scrip
 คำสั่งที่ใช้บ่อย:
 
 ```bash
-sudo systemctl status signal-bridge     # ดูสถานะ
-sudo journalctl -u signal-bridge -f     # ดู log สด
-sudo systemctl restart signal-bridge    # รีสตาร์ท
+sudo systemctl status telegram-line-forwarder     # ดูสถานะ
+sudo journalctl -u telegram-line-forwarder -f     # ดู log สด
+sudo systemctl restart telegram-line-forwarder    # รีสตาร์ท
+cd /opt/signal && sudo -u signal .venv/bin/python -m app.cli check   # ตรวจการตั้งค่า
 ```
+
+### แนะนำ: ลองด้วย Test mode ก่อน
+
+ตอนตั้งค่าจะมีคำถามว่าจะเปิด test mode ไหม ถ้าตอบ `y` ระบบจะรับข้อความจาก
+Telegram, parse, เก็บลงฐานข้อมูลจริงทุกอย่าง **แต่ไม่ส่งเข้า LINE**
+เอาไว้ดูว่า parser อ่าน signal ถูกไหมก่อนของจริง พอพร้อมแล้วแก้
+`DRY_RUN=false` ใน `/opt/signal/.env` แล้ว `sudo systemctl restart
+telegram-line-forwarder`
 
 ## Manual install
 
@@ -292,10 +337,31 @@ members: the public API only answers `GET`.
 - **Methodology** — every rule above, published verbatim from the live
   configuration
 
-`/admin` — operators only, `X-Admin-Key` (`ADMIN_API_KEY`). System status, the
-LINE delivery queue with requeue, re-parse, force re-evaluation, and manual
-result correction. A manual result freezes the signal and is labelled as
-manually set on the public dashboard.
+The page refreshes itself when the data changes: a server-sent event stream,
+falling back to polling if a proxy buffers it.
+
+`/admin` — operators only, behind a password sign-in (`ADMIN_PASSWORD`; scripts
+can still use `X-Admin-Key`). Overview with status lights, messages, signals,
+edit history, statistics, audit log, system status and the settings in force.
+
+### What an administrator cannot do
+
+- **Type in a statistic.** There is no field anywhere that sets a win rate, a
+  profit total or a signal count; every number is computed from the signals
+  table. A test asserts no API schema exposes one.
+- **Delete anything.** No delete route exists for signals, messages or the
+  audit log. A test asserts the OpenAPI schema has no `DELETE` at all.
+- **Change a result quietly.** Correcting one trade is allowed and needs a
+  written reason. It records the old value, the new value, who changed it,
+  when and why, marks the signal as manually set on the public dashboard, and
+  freezes it so the price engine stops touching it.
+
+### Audit log
+
+Every one of these is recorded: signal created, signal edited, result updated,
+TP hit, SL hit, signal cancelled, admin sign-in (including failures), admin
+action, LINE send, LINE failure, and Telegram reconnect. The log is
+append-only.
 
 ### Why no money figures
 
@@ -321,7 +387,9 @@ The ones worth thinking about:
 | `ENTRY_FILL_WINDOW_HOURS` | 12 | After this, an unfilled signal is cancelled |
 | `SIGNAL_EXPIRY_HOURS` | 72 | After this, an open trade is marked to market |
 | `POINT_SIZE` | 1.0 | 1 point of price movement |
-| `ADMIN_API_KEY` | *(empty)* | Empty disables `/admin` entirely |
+| `ADMIN_PASSWORD` | *(empty)* | Empty disables `/admin` entirely |
+| `DRY_RUN` | `false` | `true` stores everything but sends nothing to LINE |
+| `LINE_MAX_ATTEMPTS` | `3` | Retries wait 2s, 5s, 10s, then FAILED |
 
 ---
 
@@ -335,13 +403,47 @@ python -m app.cli evaluate    # run the result engine once
 python -m app.cli drain       # flush the LINE queue once
 python -m app.cli stats       # print the overview as JSON
 python -m app.main --only api # run just the web tier
+
+bash scripts/backup.sh             # daily database + credentials backup
+bash scripts/backup.sh --weekly    # the weekly copy, kept for longer
 ```
+
+### Test mode
+
+`DRY_RUN=true` receives, parses and stores everything exactly as normal, but
+sends nothing to LINE. The dashboard and the admin console both say so while it
+is on. Set it to `false` when you are ready to go live.
 
 `scripts/install.sh` also handles updates and can reinstall just the service
 (`--service-only`). Other deployment files are in [`deploy/`](deploy/): a
 Dockerfile, a `docker-compose.yml` with PostgreSQL, and an nginx sample that
 keeps `/admin` behind an IP allow-list. The runbook — backups, log locations, common failures
 — is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+---
+
+## API
+
+The dashboard uses `/api/public/*`. The paths named in the brief are served as
+well, and both go through the same code:
+
+| Path | Returns |
+|---|---|
+| `GET /api/dashboard/summary` | Summary cards |
+| `GET /api/dashboard/daily`, `/weekly`, `/monthly` | Period breakdowns |
+| `GET /api/dashboard/equity` | Cumulative P/L curve |
+| `GET /api/signals` | Signal list, with filters |
+| `GET /api/signals/{id}` | One signal |
+| `GET /api/signals/{id}/history` | Every version and every parse |
+| `GET /api/statistics` | Summary plus the breakdowns |
+| `GET /api/public/stream` | Server-sent events when data changes |
+| `GET /performance-methodology` | The methodology page |
+
+Period selectors accepted by the range parameter: `today`, `yesterday`, `7d`,
+`30d`, `90d`, `3m`, `6m`, `1y`, `wtd`, `mtd`, `ytd`, `all`, and `custom` with
+`date_from` / `date_to`.
+
+Full generated documentation is at `/api/docs`.
 
 ---
 
@@ -355,6 +457,13 @@ keeps `/admin` behind an IP allow-list. The runbook — backups, log locations, 
 The suite covers the parser against the brief's examples, duplicate and edit
 handling, LINE delivery and retries, the result engine (including the
 same-candle rules), the statistics, and the API.
+
+`tests/test_acceptance.py` follows the brief's own acceptance tests, one test
+per numbered section, so a run can be checked off against it:
+
+```bash
+.venv/bin/python -m pytest tests/test_acceptance.py -v
+```
 
 To look at the dashboard with plausible data before going live:
 

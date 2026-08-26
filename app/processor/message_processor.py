@@ -72,6 +72,13 @@ async def ingest_message(
         log.debug("duplicate %s/%s v%s ignored", chat_id, message_id, previous.version)
         return IngestResult(previous, None, created=False, reason="duplicate_content")
 
+    if previous is not None:
+        # Section 54 asks for both hashes on an edit, so a delivery can be
+        # traced back to exactly which revision produced it.
+        log.info("Message edited: %s/%s", chat_id, message_id)
+        log.info("Old hash: %s", previous.content_hash[:12])
+        log.info("New hash: %s", digest[:12])
+
     if previous is None and is_edit:
         # We never saw the original (bot started after it was posted). Record it
         # as the first version we know about rather than dropping it.
@@ -90,7 +97,7 @@ async def ingest_message(
         created_at=tg_created_at,
         edited_at=tg_edited_at,
         received_at=utcnow(),
-        status=DeliveryStatus.PENDING if settings.line_enabled else DeliveryStatus.SKIPPED,
+        status=DeliveryStatus.PENDING if settings.line_delivery_enabled else DeliveryStatus.SKIPPED,
         sender_name=sender_name,
         has_media=has_media,
     )
@@ -117,7 +124,7 @@ def render_line_text(message: TelegramMessage) -> str:
     and a blank line so members can see the message was revised (section 6).
     """
     body = message.content or ""
-    if message.event_type == EventType.EDIT:
+    if message.event_type == EventType.EDIT and settings.add_edited_prefix:
         body = f"{settings.line_edit_prefix}\n\n{body}"
     if len(body) > settings.line_max_chars:
         body = body[: settings.line_max_chars - 1] + "…"

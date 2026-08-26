@@ -1,9 +1,11 @@
 ; systemd unit for the whole system (listener + LINE worker + result engine + API).
 ;
-;   sudo cp deploy/signal-bridge.service /etc/systemd/system/
+;   sudo cp deploy/telegram-line-forwarder.service /etc/systemd/system/
 ;   sudo systemctl daemon-reload
-;   sudo systemctl enable --now signal-bridge
-;   journalctl -u signal-bridge -f
+;   sudo systemctl enable --now telegram-line-forwarder
+;   journalctl -u telegram-line-forwarder -f
+;
+; enable makes it come back on its own after a reboot (sections 52, 53).
 ;
 ; Run `python -m app.cli login` as the same user first, so the Telegram
 ; session file exists before the service starts.
@@ -37,7 +39,7 @@ RestrictSUIDSGID=true
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=signal-bridge
+SyslogIdentifier=telegram-line-forwarder
 
 [Install]
 WantedBy=multi-user.target
