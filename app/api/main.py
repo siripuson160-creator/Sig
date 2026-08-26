@@ -12,10 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import __version__
+from app import __version__, setup_state
 from app.api.routes_admin import router as admin_router
 from app.api.routes_compat import router as compat_router
 from app.api.routes_public import router as public_router
+from app.api.routes_setup import router as setup_router
 from app.config import settings
 from app.db.session import init_db
 
@@ -31,6 +32,13 @@ def create_app(*, init_database: bool = True) -> FastAPI:
         # the supervisor has already prepared the schema.
         if init_database:
             await init_db()
+        # Whichever way the API was started — the supervisor, uvicorn directly,
+        # a container — an unconfigured install needs a setup token to exist,
+        # or /setup asks for one that was never written.
+        if not setup_state.is_configured():
+            token = setup_state.ensure_token()
+            log.warning("not configured yet — open /setup?token=%s to finish the install", token)
+            log.warning("the same token is in %s", setup_state.TOKEN_PATH)
         yield
 
     app = FastAPI(
@@ -50,6 +58,7 @@ def create_app(*, init_database: bool = True) -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(setup_router)
     app.include_router(public_router)
     app.include_router(compat_router)
     app.include_router(admin_router)
@@ -60,14 +69,30 @@ def create_app(*, init_database: bool = True) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     async def root() -> RedirectResponse:
+        # A fresh install has nothing to show on a dashboard, so send the
+        # operator to the thing they actually need to do next.
+        if not setup_state.is_configured():
+            return RedirectResponse("/setup")
         return RedirectResponse("/dashboard")
 
-    @app.get("/dashboard", include_in_schema=False)
-    async def dashboard() -> FileResponse:
+    # response_model=None on these three: the return type is a union of two
+    # Response classes, which FastAPI would otherwise try to treat as a schema.
+    @app.get("/setup", include_in_schema=False, response_model=None)
+    async def setup_page() -> FileResponse | RedirectResponse:
+        if setup_state.is_configured():
+            return RedirectResponse("/dashboard")
+        return FileResponse(os.path.join(WEB_DIR, "setup.html"))
+
+    @app.get("/dashboard", include_in_schema=False, response_model=None)
+    async def dashboard() -> FileResponse | RedirectResponse:
+        if not setup_state.is_configured():
+            return RedirectResponse("/setup")
         return FileResponse(os.path.join(WEB_DIR, "dashboard.html"))
 
-    @app.get("/admin", include_in_schema=False)
-    async def admin() -> FileResponse:
+    @app.get("/admin", include_in_schema=False, response_model=None)
+    async def admin() -> FileResponse | RedirectResponse:
+        if not setup_state.is_configured():
+            return RedirectResponse("/setup")
         return FileResponse(os.path.join(WEB_DIR, "admin.html"))
 
     @app.get("/performance-methodology", include_in_schema=False)

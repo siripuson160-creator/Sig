@@ -184,3 +184,60 @@ async def test_no_candles_leaves_the_signal_pending():
     outcome = await run(buy_spec(), [])
     assert outcome.status == SignalStatus.PENDING
     assert outcome.result == SignalResult.PENDING_RESULT
+
+
+# ------------------------------------------------- price-feed request budget
+class CountingProvider:
+    """A provider that records how often it is actually asked for prices."""
+
+    name = "counting"
+    available = True
+
+    def __init__(self, candles):
+        self._candles = candles
+        self.calls = 0
+
+    async def get_candles(self, symbol, timeframe, start, end):
+        self.calls += 1
+        return list(self._candles)
+
+    def supports_timeframe(self, timeframe):
+        return True
+
+    async def close(self):
+        return None
+
+    def describe(self):
+        return {"name": self.name, "available": True}
+
+
+async def test_one_price_request_per_symbol_not_per_signal(session):
+    """A metered free plan must not be drained by having several signals open."""
+    from app.db.models import Direction, SignalStatus
+    from app.engine.result_engine import ResultEngine
+    from tests.factories import make_signal
+
+    for index in range(5):
+        signal = make_signal(
+            offset_minutes=index,
+            result=SignalResult.PENDING_RESULT,
+            status=SignalStatus.PENDING,
+            message_id=7000 + index,
+        )
+        signal.direction = Direction.BUY
+        session.add(signal)
+    await session.commit()
+
+    engine = ResultEngine(provider=CountingProvider([candle(1, 3339, 3341)]))
+    await engine.run_once(session)
+
+    assert engine.provider.calls == 1, "five open signals on one symbol must cost one request"
+
+
+async def test_no_open_signals_costs_no_requests(session):
+    """Quiet periods should not touch the price feed at all."""
+    from app.engine.result_engine import ResultEngine
+
+    engine = ResultEngine(provider=CountingProvider([]))
+    assert await engine.run_once(session) == 0
+    assert engine.provider.calls == 0

@@ -12,7 +12,7 @@ from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AmbiguityRule = Literal["SL_FIRST", "TP_FIRST", "AMBIGUOUS"]
@@ -85,7 +85,9 @@ class Settings(BaseSettings):
     signal_expiry_hours: int = 72
     # How long we wait for price to touch entry before abandoning the signal.
     entry_fill_window_hours: int = 12
-    result_engine_interval_seconds: int = 60
+    # Every pass costs one price request per symbol that has an open signal.
+    # 120s is ~720/day, inside Twelve Data's free 800/day allowance.
+    result_engine_interval_seconds: int = 120
 
     # ---------------------------------------------------------------- test mode
     # Section 57: receive, parse and store for real, but do not push to LINE.
@@ -111,6 +113,29 @@ class Settings(BaseSettings):
     log_backup_count: int = 7
 
     # --------------------------------------------------------------- validators
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_means_default(cls, data):
+        """Treat `SOMETHING=` in a .env as "unset" for non-text settings.
+
+        A half-filled .env is normal on a fresh install — the setup wizard
+        writes every key, empty ones included. Without this, `TELEGRAM_API_ID=`
+        raises a validation error at import time, which crash-loops the service
+        before it can serve the setup page that would fix it.
+
+        Text settings keep their empty value: "" is a meaningful answer there
+        (no LINE token yet), and their defaults are empty anyway.
+        """
+        if not isinstance(data, dict):
+            return data
+        cleaned = {}
+        for key, value in data.items():
+            field = cls.model_fields.get(str(key).lower())
+            if value == "" and field is not None and field.annotation is not str:
+                continue  # fall back to the declared default
+            cleaned[key] = value
+        return cleaned
+
     @field_validator("log_level")
     @classmethod
     def _upper(cls, v: str) -> str:

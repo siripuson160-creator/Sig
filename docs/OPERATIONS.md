@@ -17,10 +17,85 @@ curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scrip
   | sudo bash -s -- --domain signals.example.com --email you@example.com
 ```
 
-That is the whole thing. The installer creates the `signal` user and
-`/opt/signal`, installs dependencies, runs the setup wizard, signs you in to
-Telegram, lets you pick the source group, starts the service, sets up nginx and
-a certificate, schedules the backups, and checks the dashboard answers.
+The installer creates the `signal` user and `/opt/signal`, installs
+dependencies, sets up nginx and a certificate if you gave a domain, schedules
+the backups, starts the service, and prints a link:
+
+```
+      http://203.0.113.10:8000/setup?token=KvG85TyjZolxZEN6lVbJF993PYBRbyB5
+```
+
+The rest happens in a browser: Telegram credentials, the login code, the source
+group, LINE, prices and scoring. Saving writes `.env`, retires the setup link
+and restarts the service with every component running.
+
+### How the setup page is protected
+
+Two conditions, both required on every `/api/setup/*` request:
+
+* the install is genuinely unconfigured — the wizard cannot be used to
+  reconfigure a running system, and
+* the request carries the token from `/opt/signal/data/setup-token`, a 0600
+  file only someone with shell access can read.
+
+So an unconfigured box on a public IP cannot be captured by whoever finds the
+port first. The token is deleted the moment setup succeeds.
+
+The Telegram code and 2FA password are typed by the account owner into their
+own browser, reach their own server, and go straight to Telethon's `sign_in`.
+They are never stored, never written to `.env`, and never logged — the same
+guarantee the terminal wizard gives (section 3). Transport is the operator's
+call: on a bare IP there is no TLS, so the page warns and offers the tunnel.
+
+If the link is lost:
+
+```bash
+sudo cat /opt/signal/data/setup-token
+```
+
+If setup was interrupted, just open the link again — nothing is written until
+the final step. To start over completely, empty `.env` and restart the service;
+it will come back up in setup mode with a fresh token in the journal.
+
+### Setup mode
+
+An unconfigured install runs the web tier only. The listener has no credentials
+to connect with and the LINE worker has no destination, so starting them would
+crash-loop the unit; serving `/setup` is the one useful thing to do. The
+journal says so at startup:
+
+```
+not configured yet — starting in setup mode, only the web tier is running
+open http://<this-server>:8000/setup?token=…
+```
+
+Prefer the terminal? `--cli-setup` asks the same questions there, and
+`python -m app.cli setup` still works on an existing install.
+
+### A private repository
+
+`curl: (22) The requested URL returned error: 404` on the command above means
+the repository is private — GitHub answers 404 rather than 403 for a repository
+an anonymous request may not know exists. The file is there; the request is not
+authenticated.
+
+Create a fine-grained token at
+<https://github.com/settings/personal-access-tokens>, scoped to this repository
+with **Contents: Read-only**, then:
+
+```bash
+export GITHUB_TOKEN=github_pat_xxx
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo -E bash
+```
+
+The token is needed twice: once by `curl` to read the script, and once by the
+installer to clone. `sudo -E` passes it through; `--token github_pat_xxx` does
+the same when running from a clone. The installer resets the remote to the
+plain URL right after cloning, so the token never lands in `.git/config` — but
+it is still a credential, so use a read-only one and delete it when the install
+is done. Making the repository public removes the need for it entirely.
 
 Useful flags:
 
@@ -30,6 +105,8 @@ sudo bash scripts/install.sh --skip-setup        # update code and deps only
 sudo bash scripts/install.sh --service-only      # rewrite and restart the unit
 sudo bash scripts/install.sh --branch some-branch  # install a specific branch
 sudo bash scripts/install.sh --no-https          # skip nginx entirely
+sudo bash scripts/install.sh --token github_pat_xxx  # private repository
+sudo bash scripts/install.sh --cli-setup         # configure in the terminal
 ```
 
 Re-run it any time to update: `.env`, the Telegram session and the database
@@ -67,15 +144,24 @@ cd /opt/signal
 sudo -u signal python3 -m venv .venv
 sudo -u signal .venv/bin/pip install -r requirements.txt
 
-# Asks the configuration questions, writes .env, signs in, picks the group.
-# Interactive: the account owner types the Telegram code here.
-sudo -u signal .venv/bin/python -m app.cli setup
-sudo -u signal .venv/bin/python -m app.cli check
+# The unit needs this file to exist and to be writable by the service account.
+sudo -u signal touch /opt/signal/.env && sudo chmod 600 /opt/signal/.env
 
 sudo cp deploy/telegram-line-forwarder.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now telegram-line-forwarder
+
+# Starts in setup mode and prints the /setup link with its token:
 journalctl -u telegram-line-forwarder -f
+```
+
+To configure in the terminal instead, do it before starting the unit:
+
+```bash
+# Asks the configuration questions, writes .env, signs in, picks the group.
+# Interactive: the account owner types the Telegram code here.
+sudo -u signal .venv/bin/python -m app.cli setup
+sudo -u signal .venv/bin/python -m app.cli check
 ```
 
 ### PostgreSQL
@@ -186,6 +272,27 @@ not invent results. Configure a provider and they are judged retroactively:
 ```bash
 python -m app.cli evaluate
 ```
+
+If a provider *is* configured and results are still pending, check the log for
+the reason. The two common ones:
+
+* **`yahoo cannot price XAUUSD`** — Yahoo has no spot gold, only the futures
+  contract. Switch to `twelvedata` with a free key.
+* **`twelvedata error: ... run out of API credits`** — the free plan allows 800
+  requests a day. Raise `RESULT_ENGINE_INTERVAL_SECONDS`, or move to a paid plan.
+
+### Watching the price feed budget
+
+One request per symbol per pass, and none when no signal is open:
+
+| Interval | Requests/day with one symbol |
+|---|---|
+| 60s | ~1440 — over the free plan |
+| 120s (default) | ~720 |
+| 300s | ~290 |
+
+Results are only as fresh as the interval, so 120s means a TP hit shows up on
+the dashboard within about two minutes.
 
 ---
 

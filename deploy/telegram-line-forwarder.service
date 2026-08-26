@@ -7,8 +7,9 @@
 ;
 ; enable makes it come back on its own after a reboot (sections 52, 53).
 ;
-; Run `python -m app.cli login` as the same user first, so the Telegram
-; session file exists before the service starts.
+; Either configure first with `python -m app.cli setup` as the same user, or
+; start the unit unconfigured and finish in a browser at /setup — the journal
+; prints the link and its one-time token on startup.
 
 [Unit]
 Description=Telegram -> LINE signal bridge and dashboard
@@ -20,19 +21,24 @@ Type=simple
 User=signal
 Group=signal
 WorkingDirectory=/opt/signal
-EnvironmentFile=/opt/signal/.env
+; The leading '-' lets the service start before .env has any content, which is
+; what makes the browser setup wizard (/setup) reachable on a fresh install.
+EnvironmentFile=-/opt/signal/.env
 ExecStart=/opt/signal/.venv/bin/python -m app.main
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
 TimeoutStopSec=30
 
-# The process only ever needs its own directory.
+# The process only ever needs its own directory. .env is writable because the
+# browser setup wizard writes it once, then exits so systemd restarts with the
+# new configuration; the code itself stays read-only. The file must already
+# exist for this to work — `sudo -u signal touch /opt/signal/.env`.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/signal/data
+ReadWritePaths=/opt/signal/data /opt/signal/.env
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true

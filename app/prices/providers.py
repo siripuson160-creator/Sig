@@ -99,6 +99,146 @@ class CsvProvider(PriceProvider):
         return candles
 
 
+# -------------------------------------------------------------------- yahoo
+@register_provider("yahoo")
+class YahooProvider(PriceProvider):
+    """Yahoo Finance chart endpoint — no account and no API key.
+
+    Good for crypto, FX majors and indices.
+
+    **It cannot judge spot gold.** Yahoo carries ``GC=F``, the COMEX futures
+    contract, which trades tens of dollars away from the XAUUSD spot price a
+    signal group quotes. Judging a spot signal against futures prices would
+    make every entry look missed and every result wrong, so this provider
+    refuses XAUUSD rather than answer with the wrong instrument. Use
+    ``twelvedata`` (free key) for gold, or set ``PRICE_SYMBOL=GC=F`` if your
+    group really does post futures levels.
+
+    Intraday history is limited by Yahoo: 1-minute candles only go back about
+    7 days, 5-minute about 60. Older signals fall back to the coarsest
+    timeframe that still covers them.
+    """
+
+    name = "yahoo"
+    _BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
+    _INTERVALS = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "60m", "4h": "1h", "1d": "1d"}
+    #: How far back Yahoo will serve each interval.
+    _MAX_AGE_DAYS = {"1m": 7, "5m": 59, "15m": 59, "30m": 59, "60m": 729, "1h": 729, "1d": 10000}
+    #: Only instruments Yahoo actually carries at the right price.
+    _SYMBOLS = {
+        "EURUSD": "EURUSD=X",
+        "GBPUSD": "GBPUSD=X",
+        "USDJPY": "USDJPY=X",
+        "BTCUSD": "BTC-USD",
+        "ETHUSD": "ETH-USD",
+        "US30": "^DJI",
+        "NAS100": "^NDX",
+        "SPX500": "^GSPC",
+    }
+
+    #: Symbols Yahoo has no spot price for. Answering with the futures contract
+    #: instead would quietly produce wrong results, so these are refused.
+    _NO_SPOT = {
+        "XAUUSD": ("gold", "GC=F"),
+        "XAGUSD": ("silver", "SI=F"),
+    }
+
+    def __init__(self) -> None:
+        self._client: httpx.AsyncClient | None = None
+
+    def supports_timeframe(self, timeframe: str) -> bool:
+        return timeframe in self._INTERVALS
+
+    def _interval_for(self, timeframe: str, start: datetime) -> str:
+        """Coarsen the interval when the window is older than Yahoo will serve."""
+        interval = self._INTERVALS.get(timeframe, "1m")
+        age_days = (datetime.now(timezone.utc) - start).days
+        order = ["1m", "5m", "15m", "30m", "60m", "1d"]
+        if interval not in order:
+            return interval
+        for candidate in order[order.index(interval) :]:
+            if age_days <= self._MAX_AGE_DAYS.get(candidate, 0):
+                return candidate
+        return "1d"
+
+    async def get_candles(self, symbol: str, timeframe: str, start: datetime, end: datetime) -> list[Candle]:
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(20.0),
+                # The endpoint refuses requests without a browser-ish agent.
+                headers={"User-Agent": "Mozilla/5.0 (compatible; signal-dashboard/1.0)"},
+            )
+
+        upper = symbol.upper()
+        if upper in self._NO_SPOT:
+            metal, future = self._NO_SPOT[upper]
+            log.error(
+                "PRICE_DATA_PROVIDER=yahoo cannot price %s: Yahoo only carries %s, the futures "
+                "contract, which trades away from spot. Results would be wrong, so nothing is "
+                "returned. Use PRICE_DATA_PROVIDER=twelvedata with a free API key for spot %s, "
+                "or set PRICE_SYMBOL=%s if your group posts futures levels.",
+                upper,
+                future,
+                metal,
+                future,
+            )
+            return []
+
+        ticker = self._SYMBOLS.get(upper, upper)
+        interval = self._interval_for(timeframe, start)
+        # A little padding either side; Yahoo is exclusive at the edges.
+        params = {
+            "interval": interval,
+            "period1": int(start.timestamp()) - 300,
+            "period2": int(end.timestamp()) + 300,
+            "includePrePost": "false",
+        }
+
+        try:
+            response = await self._client.get(f"{self._BASE}/{ticker}", params=params)
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            log.warning("yahoo request for %s failed: %s", ticker, exc)
+            return []
+
+        error = (payload.get("chart") or {}).get("error")
+        if error:
+            log.warning("yahoo error for %s: %s", ticker, error)
+            return []
+
+        results = (payload.get("chart") or {}).get("result") or []
+        if not results:
+            return []
+
+        block = results[0]
+        stamps = block.get("timestamp") or []
+        quote = ((block.get("indicators") or {}).get("quote") or [{}])[0]
+
+        candles: list[Candle] = []
+        for index, stamp in enumerate(stamps):
+            values = [quote.get(field, [])[index] if index < len(quote.get(field, [])) else None
+                      for field in ("open", "high", "low", "close")]
+            if any(value is None for value in values):
+                continue  # Yahoo pads gaps with nulls.
+            candles.append(
+                Candle(
+                    ts=datetime.fromtimestamp(stamp, tz=timezone.utc),
+                    open=float(values[0]),
+                    high=float(values[1]),
+                    low=float(values[2]),
+                    close=float(values[3]),
+                )
+            )
+        candles.sort(key=lambda c: c.ts)
+        return candles
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+
 # -------------------------------------------------------------- twelve data
 @register_provider("twelvedata")
 class TwelveDataProvider(PriceProvider):

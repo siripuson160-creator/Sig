@@ -55,22 +55,64 @@ curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scrip
   | sudo bash -s -- --domain signals.example.com --email you@example.com
 ```
 
+**If the repository is private**, that command returns `curl: (22) ... 404` —
+GitHub does not say "private", it says "not found". Create a fine-grained token
+at <https://github.com/settings/personal-access-tokens> with **Contents:
+Read-only** on this repository, then:
+
+```bash
+export GITHUB_TOKEN=github_pat_xxx
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo -E bash
+```
+
+`-E` keeps the token visible to the installer, which uses it to clone and then
+resets the remote to the plain URL, so the token is never written to
+`.git/config`. Making the repository public removes the need for a token.
+
 It installs what is missing, puts the code in `/opt/signal` under a dedicated
-`signal` user, then asks you a short list of questions:
+`signal` user, starts the service, and prints a link:
 
 ```
-1. Telegram      API ID and API hash from https://my.telegram.org
-2. LINE          channel access token and group id
-3. Database      SQLite (one file) or PostgreSQL
-4. Price data    none / CSV files / Twelve Data
-5. Scoring       what counts as a win in the awkward cases
-6. Dashboard     port, timezone, and an admin key it generates for you
+==> Almost done — finish in your browser
+
+    Open this link:
+
+      http://203.0.113.10:8000/setup?token=KvG85TyjZolxZEN6lVbJF993PYBRbyB5
+```
+
+Open it and answer five screens — Telegram, the login code, which group,
+LINE, then prices and scoring. When you press **Save and start**, the settings
+file is written, the setup link stops working, and the service restarts with
+everything running. Nothing else to type in the terminal.
+
+Prefer the terminal? `--cli-setup` asks the same questions there.
+
+### About the setup link
+
+The token in that link is what makes the page safe to expose. Without it every
+setup request is refused, so someone who finds the port cannot point your
+install at their own Telegram account. It is written to
+`/opt/signal/data/setup-token` (readable only with shell access), it stops
+working the moment setup finishes, and the wizard refuses to run at all once
+the install is configured.
+
+**Your Telegram login code is not sent to us, or to anyone.** It goes from your
+browser to your own server and straight to Telegram. It is never stored, never
+written to the settings file, and never logged — same as the terminal wizard.
+
+What the link does *not* protect is the network in between: on a bare IP there
+is no HTTPS, so what you type crosses the network in the clear. The page says
+so. Either install with `--domain` for a real certificate, or tunnel it:
+
+```bash
+ssh -L 8000:localhost:8000 root@your-server
+# then open http://localhost:8000/setup
 ```
 
 Then it:
 
-- signs you in to Telegram — **you type the code**, it is never stored
-- lets you pick the source group from a menu
 - installs the systemd service and starts it (so it survives a reboot)
 - sets up nginx and a Let's Encrypt certificate if you gave a domain, and binds
   the app to `127.0.0.1` so it is only reachable through nginx
@@ -106,12 +148,62 @@ curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scrip
   | sudo bash -s -- --domain signals.example.com --email you@example.com
 ```
 
-ตัวติดตั้งจะลงของที่ขาด สร้าง user `signal` วางโค้ดไว้ที่ `/opt/signal`
-แล้วถามคำถามสั้นๆ (Telegram, LINE, ฐานข้อมูล, ราคา, กฎการนับผล, พอร์ต)
-จากนั้นจะ:
+**ถ้า repo เป็นแบบ private** คำสั่งข้างบนจะขึ้น `curl: (22) ... 404`
+(GitHub ไม่บอกว่า "private" แต่บอกว่า "ไม่พบ") ให้สร้าง token ที่
+<https://github.com/settings/personal-access-tokens> เลือกสิทธิ์
+**Contents: Read-only** เฉพาะ repo นี้ แล้วรัน:
 
-- ให้ล็อกอิน Telegram — **คุณกรอก OTP เอง ระบบไม่เก็บไว้**
-- ให้เลือกกลุ่มต้นทางจากเมนู
+```bash
+export GITHUB_TOKEN=github_pat_xxx
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo -E bash
+```
+
+`-E` คือการส่ง token ต่อให้ตัวติดตั้ง ซึ่งใช้ clone แล้วรีเซ็ต remote
+กลับเป็น URL ปกติ token จึงไม่ถูกเขียนลง `.git/config`
+ถ้าเปลี่ยน repo เป็น public ก็ไม่ต้องใช้ token เลย
+
+ตัวติดตั้งจะลงของที่ขาด สร้าง user `signal` วางโค้ดไว้ที่ `/opt/signal`
+เริ่ม service ให้ แล้วพิมพ์ลิงก์ออกมา:
+
+```
+==> Almost done — finish in your browser
+
+    Open this link:
+
+      http://203.0.113.10:8000/setup?token=KvG85TyjZolxZEN6lVbJF993PYBRbyB5
+```
+
+เปิดลิงก์นั้นในเบราว์เซอร์ แล้วตอบ 5 หน้า — Telegram, รหัสที่ส่งมา,
+เลือกกลุ่ม, LINE, แล้วก็แหล่งราคากับกฎการนับผล พอกด **Save and start**
+ระบบจะเขียนไฟล์ตั้งค่า ปิดลิงก์ setup ทิ้ง แล้วรีสตาร์ตขึ้นมาทำงานเต็มรูปแบบ
+ไม่ต้องพิมพ์อะไรใน terminal อีก
+
+ถ้าอยากตั้งค่าใน terminal เหมือนเดิม ใช้ `--cli-setup`
+
+**เรื่องลิงก์ setup**
+
+token ในลิงก์คือสิ่งที่ทำให้หน้านี้ปลอดภัย ถ้าไม่มี token ระบบจะปฏิเสธทุกคำขอ
+คนที่บังเอิญเจอพอร์ตนี้จึงเอาไปตั้งค่าเป็นบัญชี Telegram ของตัวเองไม่ได้
+token เก็บอยู่ที่ `/opt/signal/data/setup-token` (อ่านได้เฉพาะคนที่เข้า
+เครื่องได้) และจะใช้ไม่ได้ทันทีที่ตั้งค่าเสร็จ
+
+**รหัส OTP ของ Telegram ไม่ได้ถูกส่งมาให้เราหรือใครทั้งนั้น**
+มันวิ่งจากเบราว์เซอร์ของคุณ → เครื่อง VPS ของคุณเอง → Telegram โดยตรง
+ไม่ถูกเก็บ ไม่ถูกเขียนลงไฟล์ตั้งค่า และไม่ถูกบันทึกใน log
+
+สิ่งที่ token ป้องกันไม่ได้คือเส้นทางเน็ตเวิร์ก: ถ้าเข้าด้วย IP เปล่าๆ
+จะไม่มี HTTPS สิ่งที่พิมพ์จะวิ่งแบบไม่เข้ารหัส (หน้าเว็บจะเตือนไว้)
+ให้ติดตั้งด้วย `--domain` เพื่อให้ได้ HTTPS จริง หรือใช้ SSH tunnel:
+
+```bash
+ssh -L 8000:localhost:8000 root@your-server
+# แล้วเปิด http://localhost:8000/setup
+```
+
+จากนั้นตัวติดตั้งจะ:
+
 - ติดตั้ง service แล้วเริ่มรัน (รีบูตแล้วขึ้นเองอัตโนมัติ)
 - ถ้าใส่โดเมน จะติดตั้ง nginx + ใบรับรอง Let's Encrypt ให้ และผูกแอปไว้ที่
   `127.0.0.1` เพื่อให้เข้าได้ทาง nginx ทางเดียว
@@ -307,9 +399,22 @@ provider judged it (`signals.price_source`).
 
 | Value        | Behaviour                                                        |
 |--------------|------------------------------------------------------------------|
-| `none`       | MVP default — signals stay `PENDING_RESULT`, nothing is invented  |
+| `twelvedata` | Real spot prices including XAUUSD. Free API key, 800 requests/day |
+| `yahoo`      | No API key at all — FX, crypto and indices only, **not gold**     |
 | `csv`        | `PRICE_CSV_PATH/XAUUSD_1m.csv` with `timestamp,open,high,low,close` |
-| `twelvedata` | Twelve Data API, needs `PRICE_API_KEY`                            |
+| `none`       | Signals stay `PENDING_RESULT`; nothing is invented                |
+
+**For XAUUSD you need `twelvedata`.** Yahoo has no spot gold — only `GC=F`, the
+COMEX futures contract, which trades tens of dollars away from spot. Judging a
+spot signal against futures prices would make every entry look missed and every
+result wrong, so the Yahoo provider refuses gold rather than answer with the
+wrong instrument. The free key takes about a minute:
+[twelvedata.com/pricing](https://twelvedata.com/pricing).
+
+Each pass of the result engine costs **one request per symbol that has an open
+signal** — not one per signal — and no requests at all when nothing is open. At
+the default 120-second interval that is roughly 720 requests a day, inside the
+free allowance.
 
 Adding a provider is one class with a `get_candles()` method plus
 `@register_provider("name")` in `app/prices/providers.py`. Candles are cached
