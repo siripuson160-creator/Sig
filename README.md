@@ -48,6 +48,13 @@ One command on a fresh Ubuntu/Debian server:
 curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh | sudo bash
 ```
 
+For HTTPS on your own domain, point its DNS at the server first and add:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo bash -s -- --domain signals.example.com --email you@example.com
+```
+
 It installs what is missing, puts the code in `/opt/signal` under a dedicated
 `signal` user, then asks you a short list of questions:
 
@@ -60,12 +67,23 @@ It installs what is missing, puts the code in `/opt/signal` under a dedicated
 6. Dashboard     port, timezone, and an admin key it generates for you
 ```
 
-Then it signs you in to Telegram — **you type the code**, it is never stored —
-lets you pick the source group from a menu, installs the systemd service and
-starts it. At the end it prints your dashboard URL and admin key.
+Then it:
+
+- signs you in to Telegram — **you type the code**, it is never stored
+- lets you pick the source group from a menu
+- installs the systemd service and starts it (so it survives a reboot)
+- sets up nginx and a Let's Encrypt certificate if you gave a domain, and binds
+  the app to `127.0.0.1` so it is only reachable through nginx
+- schedules the daily and weekly backups
+- checks that the dashboard actually answers, and prints the URL and password
 
 Re-running the same command is safe: it updates the code and dependencies and
 keeps your `.env`, your Telegram session and your database.
+
+```bash
+sudo bash /opt/signal/scripts/install.sh --skip-setup   # update to the latest
+sudo bash /opt/signal/scripts/install.sh --domain your.domain --email you@x.com  # add HTTPS later
+```
 
 Already have a clone?
 
@@ -81,14 +99,32 @@ sudo bash scripts/install.sh
 curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh | sudo bash
 ```
 
+ถ้ามีโดเมนและอยากได้ HTTPS (ชี้ DNS มาที่เครื่องก่อน):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo bash -s -- --domain signals.example.com --email you@example.com
+```
+
 ตัวติดตั้งจะลงของที่ขาด สร้าง user `signal` วางโค้ดไว้ที่ `/opt/signal`
 แล้วถามคำถามสั้นๆ (Telegram, LINE, ฐานข้อมูล, ราคา, กฎการนับผล, พอร์ต)
-จากนั้นจะให้ล็อกอิน Telegram — **คุณกรอก OTP เอง ระบบไม่เก็บไว้** —
-เลือกกลุ่มต้นทางจากเมนู ติดตั้ง service แล้วเริ่มรันให้เลย
-ตอนจบจะบอก URL ของ dashboard และรหัส admin
+จากนั้นจะ:
+
+- ให้ล็อกอิน Telegram — **คุณกรอก OTP เอง ระบบไม่เก็บไว้**
+- ให้เลือกกลุ่มต้นทางจากเมนู
+- ติดตั้ง service แล้วเริ่มรัน (รีบูตแล้วขึ้นเองอัตโนมัติ)
+- ถ้าใส่โดเมน จะติดตั้ง nginx + ใบรับรอง Let's Encrypt ให้ และผูกแอปไว้ที่
+  `127.0.0.1` เพื่อให้เข้าได้ทาง nginx ทางเดียว
+- ตั้ง backup อัตโนมัติ (รายวัน + รายสัปดาห์)
+- ตรวจว่า dashboard ตอบจริง แล้วบอก URL กับรหัสผ่าน admin
 
 รันซ้ำได้ปลอดภัย ระบบจะอัปเดตโค้ดให้ แต่ไม่แตะ `.env`, session ของ Telegram
 และฐานข้อมูลเดิม
+
+```bash
+sudo bash /opt/signal/scripts/install.sh --skip-setup   # อัปเดตโค้ดอย่างเดียว
+sudo bash /opt/signal/scripts/install.sh --domain your.domain --email you@x.com  # เพิ่ม HTTPS ทีหลัง
+```
 
 ถ้ายังไม่มีข้อมูลราคา เลือก `none` ได้ ระบบจะเก็บ signal ไว้และแสดง `PENDING`
 จนกว่าจะต่อ price provider แล้วจึงย้อนกลับไปตัดสินผลย้อนหลังให้
@@ -99,7 +135,16 @@ curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scrip
 sudo systemctl status telegram-line-forwarder     # ดูสถานะ
 sudo journalctl -u telegram-line-forwarder -f     # ดู log สด
 sudo systemctl restart telegram-line-forwarder    # รีสตาร์ท
+cd /opt/signal && sudo -u signal .venv/bin/python -m app.cli check   # ตรวจการตั้งค่า
 ```
+
+### แนะนำ: ลองด้วย Test mode ก่อน
+
+ตอนตั้งค่าจะมีคำถามว่าจะเปิด test mode ไหม ถ้าตอบ `y` ระบบจะรับข้อความจาก
+Telegram, parse, เก็บลงฐานข้อมูลจริงทุกอย่าง **แต่ไม่ส่งเข้า LINE**
+เอาไว้ดูว่า parser อ่าน signal ถูกไหมก่อนของจริง พอพร้อมแล้วแก้
+`DRY_RUN=false` ใน `/opt/signal/.env` แล้ว `sudo systemctl restart
+telegram-line-forwarder`
 
 ## Manual install
 

@@ -10,9 +10,17 @@ Day-to-day running of the Telegram → LINE bridge and dashboard.
 curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh | sudo bash
 ```
 
+With a domain, so the dashboard is served over HTTPS (section 59):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo bash -s -- --domain signals.example.com --email you@example.com
+```
+
 That is the whole thing. The installer creates the `signal` user and
 `/opt/signal`, installs dependencies, runs the setup wizard, signs you in to
-Telegram, lets you pick the source group, and starts the service.
+Telegram, lets you pick the source group, starts the service, sets up nginx and
+a certificate, schedules the backups, and checks the dashboard answers.
 
 Useful flags:
 
@@ -20,10 +28,35 @@ Useful flags:
 sudo bash scripts/install.sh --dir /srv/signal   # install somewhere else
 sudo bash scripts/install.sh --skip-setup        # update code and deps only
 sudo bash scripts/install.sh --service-only      # rewrite and restart the unit
+sudo bash scripts/install.sh --branch some-branch  # install a specific branch
+sudo bash scripts/install.sh --no-https          # skip nginx entirely
 ```
 
 Re-run it any time to update: `.env`, the Telegram session and the database
 are left alone.
+
+### What the installer leaves behind
+
+| Path | What it is |
+|---|---|
+| `/opt/signal` | Code, virtualenv, `.env`, `data/` (database + Telegram session) |
+| `/etc/systemd/system/telegram-line-forwarder.service` | The service, enabled at boot |
+| `/etc/cron.d/telegram-line-forwarder` | Daily 03:15 and weekly Sunday 03:30 backups |
+| `/etc/nginx/sites-available/telegram-line-forwarder` | The reverse proxy, when a domain was given |
+| `/opt/signal/backups/` | Where backups land |
+
+With a domain configured, `API_HOST` is set to `127.0.0.1`, so the app is
+reachable only through nginx and not directly on its port.
+
+### Going live from test mode
+
+If you answered yes to test mode during setup, nothing reaches LINE yet. Watch
+the parser on the dashboard first, then:
+
+```bash
+sudo sed -i 's/^DRY_RUN=true/DRY_RUN=false/' /opt/signal/.env
+sudo systemctl restart telegram-line-forwarder
+```
 
 ### Doing it by hand
 
@@ -87,8 +120,13 @@ to confirm delivery end to end with a real message.
 ```bash
 systemctl status telegram-line-forwarder
 journalctl -u telegram-line-forwarder --since "1 hour ago" | grep -iE "error|failed"
-python -m app.cli stats
+cd /opt/signal && sudo -u signal .venv/bin/python -m app.cli check
+sudo -u signal .venv/bin/python -m app.cli stats
 ```
+
+`check` is the quickest "is everything wired up?" — it reports the database,
+the Telegram session, the LINE credentials and the price provider in one screen,
+and exits non-zero if something is wrong.
 
 Or open `/admin` → **Status**: database, LINE, price provider, open signals and
 the delivery queue counts are all on one screen.
@@ -153,21 +191,16 @@ python -m app.cli evaluate
 
 ## Backups
 
+The installer already scheduled these in `/etc/cron.d/telegram-line-forwarder`.
+Check they are running with `tail /opt/signal/data/backup.log`.
+
 `scripts/backup.sh` handles both databases and the credentials, and prunes old
-copies. Run it from the install directory:
+copies. To run one by hand:
 
 ```bash
 bash scripts/backup.sh                 # daily  -> ./backups/daily
 bash scripts/backup.sh --weekly        # weekly -> ./backups/weekly
 bash scripts/backup.sh --dir /backup   # somewhere else
-```
-
-Schedule it as the service user:
-
-```bash
-crontab -e
-15 3 * * *  cd /opt/signal && bash scripts/backup.sh          >> data/backup.log 2>&1
-30 3 * * 0  cd /opt/signal && bash scripts/backup.sh --weekly >> data/backup.log 2>&1
 ```
 
 It keeps 14 daily and 8 weekly copies by default (`KEEP_DAILY`, `KEEP_WEEKLY`).
@@ -248,6 +281,31 @@ failures, and Telegram reconnects. Nothing deletes from it.
 Components write a heartbeat to the database every 30 seconds, so the lights
 are accurate even when the API runs as a separate process from the listener.
 **System status** shows the raw heartbeats and how long ago each arrived.
+
+---
+
+## HTTPS
+
+Set up during installation when a domain is given. To add or change it later:
+
+```bash
+sudo bash /opt/signal/scripts/install.sh --domain signals.example.com --email you@example.com
+```
+
+Certbot installs a systemd timer that renews the certificate automatically;
+`sudo certbot renew --dry-run` confirms renewal works.
+
+If certbot failed because DNS was not pointing here yet, fix the DNS and run:
+
+```bash
+sudo certbot --nginx -d signals.example.com
+```
+
+The generated site keeps `/api/public/stream` unbuffered — that is the live
+update stream, and buffering it would make the dashboard stop refreshing by
+itself. A hand-written config should do the same; see
+`deploy/nginx.conf.example`, which also shows how to put an IP allow-list in
+front of `/admin`.
 
 ---
 
