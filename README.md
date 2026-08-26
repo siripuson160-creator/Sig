@@ -55,6 +55,22 @@ curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scrip
   | sudo bash -s -- --domain signals.example.com --email you@example.com
 ```
 
+**If the repository is private**, that command returns `curl: (22) ... 404` —
+GitHub does not say "private", it says "not found". Create a fine-grained token
+at <https://github.com/settings/personal-access-tokens> with **Contents:
+Read-only** on this repository, then:
+
+```bash
+export GITHUB_TOKEN=github_pat_xxx
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo -E bash
+```
+
+`-E` keeps the token visible to the installer, which uses it to clone and then
+resets the remote to the plain URL, so the token is never written to
+`.git/config`. Making the repository public removes the need for a token.
+
 It installs what is missing, puts the code in `/opt/signal` under a dedicated
 `signal` user, then asks you a short list of questions:
 
@@ -105,6 +121,22 @@ curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scrip
 curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
   | sudo bash -s -- --domain signals.example.com --email you@example.com
 ```
+
+**ถ้า repo เป็นแบบ private** คำสั่งข้างบนจะขึ้น `curl: (22) ... 404`
+(GitHub ไม่บอกว่า "private" แต่บอกว่า "ไม่พบ") ให้สร้าง token ที่
+<https://github.com/settings/personal-access-tokens> เลือกสิทธิ์
+**Contents: Read-only** เฉพาะ repo นี้ แล้วรัน:
+
+```bash
+export GITHUB_TOKEN=github_pat_xxx
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo -E bash
+```
+
+`-E` คือการส่ง token ต่อให้ตัวติดตั้ง ซึ่งใช้ clone แล้วรีเซ็ต remote
+กลับเป็น URL ปกติ token จึงไม่ถูกเขียนลง `.git/config`
+ถ้าเปลี่ยน repo เป็น public ก็ไม่ต้องใช้ token เลย
 
 ตัวติดตั้งจะลงของที่ขาด สร้าง user `signal` วางโค้ดไว้ที่ `/opt/signal`
 แล้วถามคำถามสั้นๆ (Telegram, LINE, ฐานข้อมูล, ราคา, กฎการนับผล, พอร์ต)

@@ -22,6 +22,31 @@ That is the whole thing. The installer creates the `signal` user and
 Telegram, lets you pick the source group, starts the service, sets up nginx and
 a certificate, schedules the backups, and checks the dashboard answers.
 
+### A private repository
+
+`curl: (22) The requested URL returned error: 404` on the command above means
+the repository is private — GitHub answers 404 rather than 403 for a repository
+an anonymous request may not know exists. The file is there; the request is not
+authenticated.
+
+Create a fine-grained token at
+<https://github.com/settings/personal-access-tokens>, scoped to this repository
+with **Contents: Read-only**, then:
+
+```bash
+export GITHUB_TOKEN=github_pat_xxx
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+  | sudo -E bash
+```
+
+The token is needed twice: once by `curl` to read the script, and once by the
+installer to clone. `sudo -E` passes it through; `--token github_pat_xxx` does
+the same when running from a clone. The installer resets the remote to the
+plain URL right after cloning, so the token never lands in `.git/config` — but
+it is still a credential, so use a read-only one and delete it when the install
+is done. Making the repository public removes the need for it entirely.
+
 Useful flags:
 
 ```bash
@@ -30,6 +55,7 @@ sudo bash scripts/install.sh --skip-setup        # update code and deps only
 sudo bash scripts/install.sh --service-only      # rewrite and restart the unit
 sudo bash scripts/install.sh --branch some-branch  # install a specific branch
 sudo bash scripts/install.sh --no-https          # skip nginx entirely
+sudo bash scripts/install.sh --token github_pat_xxx  # private repository
 ```
 
 Re-run it any time to update: `.env`, the Telegram session and the database

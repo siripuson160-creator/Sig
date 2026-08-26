@@ -4,6 +4,14 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh | sudo bash
 #
+# The repository is private, so both the script and the clone need a GitHub
+# token with read access to it:
+#
+#   export GITHUB_TOKEN=github_pat_...
+#   curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+#     https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scripts/install.sh \
+#     | sudo -E bash
+#
 # or, from a clone:
 #
 #   sudo bash scripts/install.sh
@@ -32,6 +40,7 @@ SERVICE_NAME="telegram-line-forwarder"
 
 SKIP_SETUP=false
 SERVICE_ONLY=false
+GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 DOMAIN="${DOMAIN:-}"
 LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-}"
 NO_HTTPS=false
@@ -51,6 +60,8 @@ Usage: sudo bash scripts/install.sh [options]
   --dir PATH          where to install            (default: $INSTALL_DIR)
   --user NAME         service account to run as   (default: $SERVICE_USER)
   --branch NAME       git branch to install       (default: $BRANCH)
+  --token TOKEN       GitHub token, for a private repository
+                      (or set GITHUB_TOKEN before running)
   --domain NAME       serve over HTTPS at this domain (nginx + Let's Encrypt)
   --email ADDRESS     contact address for the certificate
   --no-https          skip nginx entirely; serve on http://IP:PORT
@@ -61,6 +72,7 @@ Usage: sudo bash scripts/install.sh [options]
 Examples:
   sudo bash scripts/install.sh
   sudo bash scripts/install.sh --domain signals.example.com --email me@example.com
+  sudo bash scripts/install.sh --token github_pat_xxx       # private repository
 EOF
 }
 
@@ -69,6 +81,7 @@ while [[ $# -gt 0 ]]; do
         --dir)          INSTALL_DIR="$2"; shift 2 ;;
         --user)         SERVICE_USER="$2"; shift 2 ;;
         --branch)       BRANCH="$2"; shift 2 ;;
+        --token)        GITHUB_TOKEN="$2"; shift 2 ;;
         --domain)       DOMAIN="$2"; shift 2 ;;
         --email)        LETSENCRYPT_EMAIL="$2"; shift 2 ;;
         --no-https)     NO_HTTPS=true; shift ;;
@@ -142,6 +155,20 @@ create_user() {
 }
 
 # ------------------------------------------------------------------ code
+auth_url() {
+    # A token has to travel in the URL for HTTPS git, but it must not be
+    # persisted: every caller resets the remote to the clean URL afterwards.
+    if [[ -n "$GITHUB_TOKEN" ]]; then
+        printf 'https://x-access-token:%s@github.com/%s' "$GITHUB_TOKEN" "${REPO_URL#https://github.com/}"
+    else
+        printf '%s' "$REPO_URL"
+    fi
+}
+
+repo_is_reachable() {
+    git ls-remote --exit-code "$(auth_url)" "$BRANCH" >/dev/null 2>&1
+}
+
 fetch_code() {
     step "Application code"
     local script_repo=""
@@ -154,10 +181,15 @@ fetch_code() {
         # The checkout belongs to the service user, so git needs to be told
         # that root working on it is expected.
         local git_dir=(git -c "safe.directory=$INSTALL_DIR" -C "$INSTALL_DIR")
-        "${git_dir[@]}" remote set-url origin "$REPO_URL"
-        "${git_dir[@]}" fetch --quiet origin "$BRANCH"
+        "${git_dir[@]}" remote set-url origin "$(auth_url)"
+        if ! "${git_dir[@]}" fetch --quiet origin "$BRANCH"; then
+            "${git_dir[@]}" remote set-url origin "$REPO_URL"
+            fail "could not fetch $BRANCH — the repository is private; pass --token or set GITHUB_TOKEN"
+        fi
         "${git_dir[@]}" checkout --quiet "$BRANCH"
         "${git_dir[@]}" reset --hard --quiet "origin/$BRANCH"
+        # Put the clean URL back so the token is not left in .git/config.
+        "${git_dir[@]}" remote set-url origin "$REPO_URL"
         ok "updated to the latest $BRANCH"
     elif [[ -n "$script_repo" && "$script_repo" != "$INSTALL_DIR" ]]; then
         info "copying from $script_repo"
@@ -172,7 +204,22 @@ fetch_code() {
         ok "already running from $INSTALL_DIR"
     else
         info "cloning $REPO_URL ($BRANCH)"
-        git clone --quiet --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+        if ! repo_is_reachable; then
+            if [[ -n "$GITHUB_TOKEN" ]]; then
+                fail "cannot reach $REPO_URL on branch $BRANCH — check the token has read access to this repository"
+            fi
+            printf '\n%sThe repository is private.%s\n' "$YELLOW" "$RESET" >&2
+            info "Give the installer a GitHub token with read access:" >&2
+            info "  1. github.com/settings/personal-access-tokens -> Generate new token" >&2
+            info "  2. pick this repository, set Contents: Read-only" >&2
+            info "  3. re-run with:  sudo bash scripts/install.sh --token github_pat_xxx" >&2
+            info "" >&2
+            info "Or make the repository public, and no token is needed." >&2
+            fail "cannot clone a private repository without a token"
+        fi
+        git clone --quiet --branch "$BRANCH" "$(auth_url)" "$INSTALL_DIR"
+        # Never leave the token in .git/config.
+        git -c "safe.directory=$INSTALL_DIR" -C "$INSTALL_DIR" remote set-url origin "$REPO_URL"
         ok "cloned into $INSTALL_DIR"
     fi
 
