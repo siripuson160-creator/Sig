@@ -187,6 +187,27 @@ not invent results. Configure a provider and they are judged retroactively:
 python -m app.cli evaluate
 ```
 
+If a provider *is* configured and results are still pending, check the log for
+the reason. The two common ones:
+
+* **`yahoo cannot price XAUUSD`** — Yahoo has no spot gold, only the futures
+  contract. Switch to `twelvedata` with a free key.
+* **`twelvedata error: ... run out of API credits`** — the free plan allows 800
+  requests a day. Raise `RESULT_ENGINE_INTERVAL_SECONDS`, or move to a paid plan.
+
+### Watching the price feed budget
+
+One request per symbol per pass, and none when no signal is open:
+
+| Interval | Requests/day with one symbol |
+|---|---|
+| 60s | ~1440 — over the free plan |
+| 120s (default) | ~720 |
+| 300s | ~290 |
+
+Results are only as fresh as the interval, so 120s means a TP hit shows up on
+the dashboard within about two minutes.
+
 ---
 
 ## Backups

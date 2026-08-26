@@ -85,7 +85,9 @@ class Settings(BaseSettings):
     signal_expiry_hours: int = 72
     # How long we wait for price to touch entry before abandoning the signal.
     entry_fill_window_hours: int = 12
-    result_engine_interval_seconds: int = 60
+    # Every pass costs one price request per symbol that has an open signal.
+    # 120s is ~720/day, inside Twelve Data's free 800/day allowance.
+    result_engine_interval_seconds: int = 120
 
     # ---------------------------------------------------------------- test mode
     # Section 57: receive, parse and store for real, but do not push to LINE.

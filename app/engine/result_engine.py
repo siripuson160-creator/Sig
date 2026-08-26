@@ -343,7 +343,12 @@ class ResultEngine:
         log.info("result engine stopped")
 
     async def run_once(self, session: AsyncSession) -> int:
-        """Evaluate every open signal. Returns the number that changed."""
+        """Evaluate every open signal. Returns the number that changed.
+
+        Signals are grouped by symbol and priced with **one** request per symbol
+        per pass, not one per signal. A free price-feed plan is usually metered
+        by the day, and per-signal fetching burns through it in hours.
+        """
         rows = await session.execute(
             select(Signal).where(
                 Signal.status.in_(OPEN_STATUSES),
@@ -351,13 +356,37 @@ class ResultEngine:
                 Signal.manual_override.is_(False),
             )
         )
+        signals = list(rows.scalars().all())
+        if not signals:
+            return 0  # nothing open: no price request at all
+
+        for signal in signals:
+            signal.price_source = self.provider.name
+        if not self.provider.available:
+            return 0
+
+        by_symbol: dict[str, list[Signal]] = {}
+        for signal in signals:
+            by_symbol.setdefault(signal.symbol or settings.price_symbol, []).append(signal)
+
         changed = 0
-        for signal in rows.scalars().all():
-            if await self.evaluate_signal(session, signal):
-                changed += 1
+        for symbol, group in by_symbol.items():
+            # One window wide enough for every open signal on this symbol.
+            earliest = min(s.signal_time for s in group)
+            latest = max(s.signal_time for s in group)
+            end = min(utcnow(), latest + timedelta(hours=settings.signal_expiry_hours + 1))
+            candles = await cache.get_candles(
+                session, self.provider, symbol, settings.price_timeframe, earliest, end
+            )
+            if not candles:
+                continue
+            for signal in group:
+                if await self._judge(session, signal, symbol, candles):
+                    changed += 1
         return changed
 
     async def evaluate_signal(self, session: AsyncSession, signal: Signal) -> bool:
+        """Evaluate one signal, fetching its own prices. Used by /admin."""
         signal.price_source = self.provider.name
         if not signal.is_complete or signal.entry is None or signal.sl is None:
             return False
@@ -372,6 +401,16 @@ class ResultEngine:
         )
         if not candles:
             return False
+        return await self._judge(session, signal, symbol, candles)
+
+    async def _judge(
+        self, session: AsyncSession, signal: Signal, symbol: str, candles: list[Candle]
+    ) -> bool:
+        """Run the evaluator over candles that have already been fetched."""
+        if not signal.is_complete or signal.entry is None or signal.sl is None:
+            return False
+
+        spec = SignalSpec.from_signal(signal)
 
         async def drilldown(start: datetime, stop: datetime) -> list[Candle]:
             tf = settings.price_drilldown_timeframe

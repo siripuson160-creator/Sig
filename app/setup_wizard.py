@@ -321,24 +321,44 @@ def run_setup(env_path: str = ENV_PATH, *, run_followups: bool = True) -> int:
 
     # ------------------------------------------------------------ prices
     heading("4. Price data")
-    note("Used to decide whether a signal hit TP or SL.")
-    provider = ask_choice(
-        "Price source",
-        [
-            ("none", "no feed yet — signals are stored and judged later"),
-            ("csv", "OHLC files you export from a broker/MT5"),
-            ("twelvedata", "Twelve Data API (needs an API key)"),
-        ],
-        default=existing.get("PRICE_DATA_PROVIDER", "none"),
-    )
+    note("This is what decides whether a signal hit TP or SL. Without it the")
+    note("dashboard still shows every signal, but every result stays PENDING.")
+
+    symbol = ask("Symbol your group trades", default=existing.get("PRICE_SYMBOL", "XAUUSD")).upper()
+    values["PRICE_SYMBOL"] = symbol
+    is_metal = symbol in {"XAUUSD", "XAGUSD"}
+
+    if is_metal:
+        note("")
+        note(f"For spot {symbol} the free option is Twelve Data:")
+        note("  1. open https://twelvedata.com/pricing and take the free plan")
+        note("  2. copy the API key from the dashboard (takes about a minute)")
+        note("Yahoo is not offered for gold or silver: it only carries the futures")
+        note("contract, which trades away from spot, so results would be wrong.")
+
+    options = [("twelvedata", "Twelve Data — free API key, real spot prices")]
+    if not is_metal:
+        options.append(("yahoo", "Yahoo Finance — no key at all (FX, crypto, indices)"))
+    options += [
+        ("csv", "OHLC files you export from a broker or MT5"),
+        ("none", "none yet — signals are stored and judged once you add one"),
+    ]
+
+    provider = ask_choice("Price source", options, default=existing.get("PRICE_DATA_PROVIDER", "twelvedata"))
     values["PRICE_DATA_PROVIDER"] = provider
+
     if provider == "twelvedata":
-        values["PRICE_API_KEY"] = ask("Twelve Data API key", default=existing.get("PRICE_API_KEY", ""), required=True)
+        values["PRICE_API_KEY"] = ask(
+            "Twelve Data API key",
+            default=existing.get("PRICE_API_KEY", ""),
+            required=True,
+            hint="Paste it here. Free plan allows 800 requests a day, which is plenty.",
+        )
     elif provider == "csv":
         values["PRICE_CSV_PATH"] = ask("Folder holding the CSV files", default="./data/prices")
-    else:
-        note("Signals will show PENDING until a price source is configured.")
-    values["PRICE_SYMBOL"] = ask("Symbol traded", default=existing.get("PRICE_SYMBOL", "XAUUSD"))
+    elif provider == "none":
+        warn("Results will stay PENDING until you add a price source.")
+        note("Add one later by re-running this setup — past signals are judged retroactively.")
 
     # -------------------------------------------------------- evaluation
     heading("5. Scoring rules")

@@ -307,9 +307,22 @@ provider judged it (`signals.price_source`).
 
 | Value        | Behaviour                                                        |
 |--------------|------------------------------------------------------------------|
-| `none`       | MVP default — signals stay `PENDING_RESULT`, nothing is invented  |
+| `twelvedata` | Real spot prices including XAUUSD. Free API key, 800 requests/day |
+| `yahoo`      | No API key at all — FX, crypto and indices only, **not gold**     |
 | `csv`        | `PRICE_CSV_PATH/XAUUSD_1m.csv` with `timestamp,open,high,low,close` |
-| `twelvedata` | Twelve Data API, needs `PRICE_API_KEY`                            |
+| `none`       | Signals stay `PENDING_RESULT`; nothing is invented                |
+
+**For XAUUSD you need `twelvedata`.** Yahoo has no spot gold — only `GC=F`, the
+COMEX futures contract, which trades tens of dollars away from spot. Judging a
+spot signal against futures prices would make every entry look missed and every
+result wrong, so the Yahoo provider refuses gold rather than answer with the
+wrong instrument. The free key takes about a minute:
+[twelvedata.com/pricing](https://twelvedata.com/pricing).
+
+Each pass of the result engine costs **one request per symbol that has an open
+signal** — not one per signal — and no requests at all when nothing is open. At
+the default 120-second interval that is roughly 720 requests a day, inside the
+free allowance.
 
 Adding a provider is one class with a `get_candles()` method plus
 `@register_provider("name")` in `app/prices/providers.py`. Candles are cached
