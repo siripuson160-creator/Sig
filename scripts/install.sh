@@ -121,26 +121,71 @@ as_service_user() {
 }
 
 # --------------------------------------------------------------- packages
+apt_install() {
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" >/dev/null 2>&1
+}
+
+# Debian and Ubuntu ship the `venv` module in the stdlib but put ensurepip and
+# its seed wheels in a separate package. Testing `import venv` therefore passes
+# on a machine where `python3 -m venv` cannot actually build an environment —
+# which is how this surfaced, as a failure several steps later. ensurepip is
+# the thing that is really missing, so that is what to test for.
+venv_is_usable() {
+    python3 -c "import ensurepip" 2>/dev/null
+}
+
+venv_package_names() {
+    # The package is versioned (python3.12-venv); the unversioned name is a
+    # metapackage that does not exist on every release. Try both.
+    local version
+    version="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+    [[ -n "$version" ]] && printf 'python%s-venv\n' "$version"
+    printf 'python3-venv\n'
+}
+
 install_packages() {
     step "Checking system packages"
     local missing=()
     command -v python3 >/dev/null || missing+=(python3)
-    python3 -c "import venv" 2>/dev/null || missing+=(python3-venv)
     command -v git >/dev/null || missing+=(git)
     command -v curl >/dev/null || missing+=(curl)
 
-    if [[ ${#missing[@]} -eq 0 ]]; then
+    if [[ ${#missing[@]} -eq 0 ]] && venv_is_usable; then
         ok "python3, venv, git and curl are present"
         return
     fi
 
     if ! command -v apt-get >/dev/null; then
+        venv_is_usable || missing+=("python3-venv")
         fail "missing: ${missing[*]} — install them with your package manager and re-run"
     fi
-    info "installing: ${missing[*]}"
+
     DEBIAN_FRONTEND=noninteractive apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}" >/dev/null
-    ok "installed ${missing[*]}"
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        info "installing: ${missing[*]}"
+        apt_install "${missing[@]}" || fail "could not install: ${missing[*]}"
+        ok "installed ${missing[*]}"
+    fi
+
+    # Only now is python3 guaranteed present, so only now can its version —
+    # and therefore the right venv package name — be worked out.
+    if ! venv_is_usable; then
+        local package
+        while read -r package; do
+            info "installing $package"
+            apt_install "$package" || continue
+            venv_is_usable && break
+        done < <(venv_package_names)
+    fi
+
+    if ! venv_is_usable; then
+        warn "python3 -m venv still cannot create environments on this server"
+        info "Install the venv package for your Python and re-run:"
+        info "  sudo apt install python3-venv    # or python3.X-venv for your version"
+        fail "python3-venv is missing"
+    fi
+    ok "python3, venv, git and curl are present"
 }
 
 check_python_version() {
@@ -255,7 +300,14 @@ fetch_code() {
 install_deps() {
     step "Python environment"
     if [[ ! -x "$INSTALL_DIR/.venv/bin/python" ]]; then
-        as_service_user python3 -m venv "$INSTALL_DIR/.venv"
+        # A half-built .venv from a failed attempt would be skipped by the test
+        # above on the next run, and then break pip instead.
+        rm -rf "$INSTALL_DIR/.venv"
+        if ! as_service_user python3 -m venv "$INSTALL_DIR/.venv" || \
+           [[ ! -x "$INSTALL_DIR/.venv/bin/python" ]]; then
+            rm -rf "$INSTALL_DIR/.venv"
+            fail "could not create the virtualenv — install the venv package for your Python (sudo apt install python3-venv) and re-run"
+        fi
         ok "created virtualenv"
     else
         ok "virtualenv already present"
