@@ -1,10 +1,17 @@
-"""Read-only dashboard API for members (section 22)."""
+"""Read-only dashboard API for members (sections 22, 61).
+
+Every route here is a GET. There is deliberately no write path: a member can
+read the numbers and the history, and nothing else.
+"""
 
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +24,14 @@ from app.signals.parser import describe_parsers
 
 router = APIRouter(prefix="/api/public", tags=["public"])
 
+#: Shown on the dashboard and returned with the methodology (section 76).
+DISCLAIMER = (
+    "Trading involves significant risk. Historical signal performance does not guarantee future "
+    "results. Actual trading results may differ due to spread, slippage, commissions, execution "
+    "speed, liquidity and other market conditions. Displayed performance is based on the stated "
+    "calculation methodology and is not a guarantee of future profitability."
+)
+
 
 def _enum_value(enum_cls, raw: str, field: str):
     """Reject an unknown filter value with a 400 rather than a 500."""
@@ -27,12 +42,18 @@ def _enum_value(enum_cls, raw: str, field: str):
         raise HTTPException(status_code=400, detail=f"unknown {field}: {raw}. Allowed: {allowed}") from None
 
 
+#: Period selectors from section 40, plus the equity-curve windows of section 29.
+RANGE_PATTERN = r"^(all|today|yesterday|wtd|mtd|ytd|custom|\d{1,3}[dmy])$"
+
+
 @router.get("/overview")
 async def overview(
-    range: str = Query("all", pattern="^(all|today|yesterday|mtd|\\d{1,3}d)$"),
+    range: str = Query("all", pattern=RANGE_PATTERN),
+    date_from: str | None = Query(None, description="YYYY-MM-DD, inclusive"),
+    date_to: str | None = Query(None, description="YYYY-MM-DD, inclusive"),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    return await stats_engine.build_overview(session, range)
+    return await stats_engine.build_overview(session, range, date_from=date_from, date_to=date_to)
 
 
 @router.get("/signals")
@@ -42,6 +63,9 @@ async def list_signals(
     status: str | None = None,
     result: str | None = None,
     direction: str | None = None,
+    range: str = Query("all", pattern=RANGE_PATTERN),
+    date_from: str | None = None,
+    date_to: str | None = None,
     complete_only: bool = True,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -49,6 +73,11 @@ async def list_signals(
     count_query = select(func.count()).select_from(Signal)
 
     filters = []
+    start, end = stats_engine.range_bounds(range, date_from=date_from, date_to=date_to)
+    if start is not None:
+        filters.append(Signal.signal_time >= start)
+    if end is not None:
+        filters.append(Signal.signal_time <= end)
     if complete_only:
         filters.append(Signal.is_complete.is_(True))
     if status:
@@ -117,10 +146,25 @@ async def performance(
 
 @router.get("/analytics")
 async def analytics(
-    range: str = Query("all", pattern="^(all|today|yesterday|mtd|\\d{1,3}d)$"),
+    range: str = Query("all", pattern=RANGE_PATTERN),
+    date_from: str | None = None,
+    date_to: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    return await stats_engine.build_analytics(session, range)
+    return await stats_engine.build_analytics(session, range, date_from=date_from, date_to=date_to)
+
+
+@router.get("/equity")
+async def equity(
+    range: str = Query("all", pattern=RANGE_PATTERN),
+    date_from: str | None = None,
+    date_to: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Cumulative P/L curve on its own (section 29)."""
+    start, end = stats_engine.range_bounds(range, date_from=date_from, date_to=date_to)
+    rows = await stats_engine.load_rows(session, start=start, end=end)
+    return {"range": range, "timezone": settings.timezone, "points": stats_engine.equity_curve(rows)}
 
 
 @router.get("/methodology")
@@ -154,12 +198,74 @@ async def methodology() -> dict:
             "P/L is measured in points from entry to exit. No money figures are shown because lot size, "
             "spread, commission and swap are not known to this system.",
             "PENDING, AMBIGUOUS and CANCELLED signals are reported separately and are never hidden from the totals.",
+            "Win rate = wins / (wins + losses) x 100. Pending, active and cancelled signals are excluded.",
+            "Profit factor = gross profit / gross loss.",
+            "Maximum drawdown is the largest peak-to-trough fall of the cumulative points curve.",
+            "Risk and reward are measured from the posted levels: entry to stop, and entry to TP1.",
+            "Take-profit counts are cumulative: a signal that reached TP2 is counted under TP1 as well.",
+            "Corrections made by hand are recorded in the audit log with the old value, the new value, "
+            "who made the change, when, and why. Nothing is edited silently.",
         ],
+        "disclaimer": DISCLAIMER,
     }
+
+
+async def _fingerprint(session: AsyncSession) -> str:
+    """Cheap summary of "has anything changed?"."""
+    signals, messages, latest = (
+        await session.execute(
+            select(
+                func.count(Signal.signal_id),
+                select(func.count()).select_from(TelegramMessage).scalar_subquery(),
+                func.max(Signal.updated_at),
+            )
+        )
+    ).one()
+    return f"{signals}:{messages}:{latest.isoformat() if latest else '-'}"
+
+
+@router.get("/stream")
+async def stream(request: Request, session: AsyncSession = Depends(get_session)) -> StreamingResponse:
+    """Server-sent events: one message whenever the data changes (section 47).
+
+    The dashboard falls back to polling if the connection drops, so this is an
+    optimisation rather than a requirement.
+    """
+
+    async def events():
+        last = ""
+        # Tell the client how long to wait before reconnecting.
+        yield f"retry: {settings.dashboard_refresh_seconds * 1000}\n\n"
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                current = await _fingerprint(session)
+            except Exception:  # pragma: no cover - transient database issue
+                current = last
+            if current != last:
+                last = current
+                yield f"event: changed\ndata: {json.dumps({'fingerprint': current})}\n\n"
+            else:
+                yield ": keep-alive\n\n"
+            await asyncio.sleep(settings.dashboard_refresh_seconds)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 @router.get("/health")
 async def health(session: AsyncSession = Depends(get_session)) -> dict:
     total = (await session.execute(select(func.count()).select_from(Signal))).scalar_one()
     messages = (await session.execute(select(func.count()).select_from(TelegramMessage))).scalar_one()
-    return {"status": "ok", "signals": int(total), "messages": int(messages), "timezone": settings.timezone}
+    return {
+        "status": "ok",
+        "signals": int(total),
+        "messages": int(messages),
+        "timezone": settings.timezone,
+        "refresh_seconds": settings.dashboard_refresh_seconds,
+        "dry_run": settings.dry_run,
+    }

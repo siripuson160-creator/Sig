@@ -201,10 +201,11 @@ TELEGRAM_EXTRA_CHAT_IDS={get('TELEGRAM_EXTRA_CHAT_IDS', '')}
 
 # --------------------------------------------------------------- line
 LINE_CHANNEL_ACCESS_TOKEN={get('LINE_CHANNEL_ACCESS_TOKEN', '')}
-LINE_TARGET_ID={get('LINE_TARGET_ID', '')}
+LINE_GROUP_ID={get('LINE_GROUP_ID', get('LINE_TARGET_ID', ''))}
 LINE_ENABLED={get('LINE_ENABLED', 'true')}
+ADD_EDITED_PREFIX={get('ADD_EDITED_PREFIX', 'true')}
 LINE_EDIT_PREFIX={get('LINE_EDIT_PREFIX', 'EDITED')}
-LINE_MAX_ATTEMPTS={get('LINE_MAX_ATTEMPTS', '5')}
+LINE_MAX_ATTEMPTS={get('LINE_MAX_ATTEMPTS', '3')}
 
 # ------------------------------------------------------------- prices
 PRICE_DATA_PROVIDER={get('PRICE_DATA_PROVIDER', 'none')}
@@ -224,12 +225,21 @@ ENTRY_FILL_WINDOW_HOURS={get('ENTRY_FILL_WINDOW_HOURS', '12')}
 SIGNAL_EXPIRY_HOURS={get('SIGNAL_EXPIRY_HOURS', '72')}
 RESULT_ENGINE_INTERVAL_SECONDS={get('RESULT_ENGINE_INTERVAL_SECONDS', '60')}
 
+# ---------------------------------------------------------- test mode
+# true = store everything as normal but never push to LINE.
+DRY_RUN={get('DRY_RUN', 'false')}
+
 # ---------------------------------------------------------------- api
 API_HOST={get('API_HOST', '0.0.0.0')}
 API_PORT={get('API_PORT', '8000')}
-# Password for /admin. Empty disables the admin pages entirely.
-ADMIN_API_KEY={get('ADMIN_API_KEY', '')}
+# Password for the /admin sign-in. Empty disables the admin pages entirely.
+ADMIN_PASSWORD={get('ADMIN_PASSWORD', '')}
+ADMIN_SESSION_HOURS={get('ADMIN_SESSION_HOURS', '12')}
 CORS_ORIGINS={get('CORS_ORIGINS', '*')}
+DASHBOARD_REFRESH_SECONDS={get('DASHBOARD_REFRESH_SECONDS', '10')}
+
+# ------------------------------------------------------------ logging
+LOG_FILE={get('LOG_FILE', '')}
 """
 
 
@@ -270,13 +280,20 @@ def run_setup(env_path: str = ENV_PATH, *, run_followups: bool = True) -> int:
         values["LINE_CHANNEL_ACCESS_TOKEN"] = ask(
             "Channel access token", default=existing.get("LINE_CHANNEL_ACCESS_TOKEN", ""), required=True
         )
-        values["LINE_TARGET_ID"] = ask(
+        values["LINE_GROUP_ID"] = ask(
             "Group id (starts with C)",
-            default=existing.get("LINE_TARGET_ID", ""),
+            default=existing.get("LINE_GROUP_ID", existing.get("LINE_TARGET_ID", "")),
             required=True,
             validate=_line_target,
             hint="Read it from a webhook event — see docs/OPERATIONS.md.",
         )
+        values["DRY_RUN"] = (
+            "true"
+            if ask_yes_no("Start in test mode (store everything, send nothing to LINE)?", default=False)
+            else "false"
+        )
+        if values["DRY_RUN"] == "true":
+            note("Test mode is on. Set DRY_RUN=false in .env when you are ready to go live.")
     else:
         values["LINE_ENABLED"] = "false"
         warn("LINE delivery is off. Messages are stored but not forwarded.")
@@ -348,12 +365,14 @@ def run_setup(env_path: str = ENV_PATH, *, run_followups: bool = True) -> int:
     values["API_PORT"] = ask("Port to serve on", default=existing.get("API_PORT", "8000"), validate=_digits)
     values["TIMEZONE"] = ask("Timezone", default=existing.get("TIMEZONE", "Asia/Bangkok"), validate=_timezone)
 
-    admin_key = existing.get("ADMIN_API_KEY", "")
-    if admin_key and ask_yes_no("Keep the existing admin key?", default=True):
-        values["ADMIN_API_KEY"] = admin_key
+    admin_password = existing.get("ADMIN_PASSWORD", "") or existing.get("ADMIN_API_KEY", "")
+    if admin_password and ask_yes_no("Keep the existing admin password?", default=True):
+        values["ADMIN_PASSWORD"] = admin_password
+    elif ask_yes_no("Choose the admin password yourself?", default=False):
+        values["ADMIN_PASSWORD"] = ask("Admin password", required=True)
     else:
-        values["ADMIN_API_KEY"] = secrets.token_hex(24)
-        ok("Generated a new admin key (shown at the end).")
+        values["ADMIN_PASSWORD"] = secrets.token_hex(16)
+        ok("Generated an admin password (shown at the end).")
 
     # ------------------------------------------------------------- write
     if os.path.exists(env_path):
@@ -405,8 +424,10 @@ def _finish(values: dict[str, str], env_path: str) -> int:
     print(f"  Start it:        {_colour(f'{sys.executable} -m app.main', BOLD)}")
     print(f"  Member view:     http://<your-server>:{port}/dashboard")
     print(f"  Admin view:      http://<your-server>:{port}/admin")
-    print(f"  Admin key:       {values.get('ADMIN_API_KEY', '')}")
-    note("The admin key is also in .env. Anyone with it can change results.")
+    print(f"  Admin password:  {values.get('ADMIN_PASSWORD', '')}")
+    note("Also in .env. Anyone with it can correct results — every change is audited.")
+    if values.get("DRY_RUN") == "true":
+        warn("Test mode is on: nothing will be sent to LINE until DRY_RUN=false.")
     print()
     note("Run it as a service with:  sudo bash scripts/install.sh --service-only")
     return 0

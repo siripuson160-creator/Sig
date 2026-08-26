@@ -56,8 +56,8 @@ class LineClient:
     def _require_config(self) -> None:
         if not settings.line_channel_access_token:
             raise LineConfigError("LINE_CHANNEL_ACCESS_TOKEN is not set")
-        if not settings.line_target_id:
-            raise LineConfigError("LINE_TARGET_ID is not set")
+        if not settings.line_destination:
+            raise LineConfigError("LINE_GROUP_ID is not set")
 
     async def push_text(self, text: str, *, idempotency_key: str | None = None) -> LineSendResult:
         """Push one text message. Never raises for HTTP failures."""
@@ -72,7 +72,7 @@ class LineClient:
         if idempotency_key:
             headers["X-Line-Retry-Key"] = idempotency_key
 
-        payload = {"to": settings.line_target_id, "messages": [{"type": "text", "text": text}]}
+        payload = {"to": settings.line_destination, "messages": [{"type": "text", "text": text}]}
 
         try:
             response = await self._client.post(

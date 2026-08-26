@@ -39,10 +39,10 @@ sudo -u signal .venv/bin/pip install -r requirements.txt
 sudo -u signal .venv/bin/python -m app.cli setup
 sudo -u signal .venv/bin/python -m app.cli check
 
-sudo cp deploy/signal-bridge.service /etc/systemd/system/
+sudo cp deploy/telegram-line-forwarder.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now signal-bridge
-journalctl -u signal-bridge -f
+sudo systemctl enable --now telegram-line-forwarder
+journalctl -u telegram-line-forwarder -f
 ```
 
 ### PostgreSQL
@@ -69,7 +69,7 @@ The LINE Messaging API only reveals a group id through a webhook event.
    request-logging endpoint works) and enable "Use webhook".
 2. Invite the channel's bot into the group and post a message.
 3. The webhook payload contains `"source": {"type": "group", "groupId": "Cxxxx…"}`.
-4. Put that value in `LINE_TARGET_ID`.
+4. Put that value in `LINE_GROUP_ID`.
 
 Verify with:
 
@@ -85,8 +85,8 @@ to confirm delivery end to end with a real message.
 ## Daily checks
 
 ```bash
-systemctl status signal-bridge
-journalctl -u signal-bridge --since "1 hour ago" | grep -iE "error|failed"
+systemctl status telegram-line-forwarder
+journalctl -u telegram-line-forwarder --since "1 hour ago" | grep -iE "error|failed"
 python -m app.cli stats
 ```
 
@@ -99,12 +99,13 @@ the delivery queue counts are all on one screen.
 
 ### Messages are not reaching LINE
 
-1. `/admin` → **LINE queue**, filter `FAILED`; the last error is on the row.
+1. `/admin` → **Messages**, filter `FAILED`; the last error is on the row.
 2. `python -m app.cli check` — is the token still valid?
 3. Common causes:
    - the bot was removed from the LINE group → re-invite it
    - the channel access token was rotated → update `.env`, restart
-   - `LINE_ENABLED=false` → messages are stored with status `SKIPPED`
+   - `LINE_ENABLED=false` or `DRY_RUN=true` → messages are stored with status
+     `SKIPPED` and never sent; the admin overview says so in a banner
 4. After fixing, requeue the failed rows from `/admin`, or:
    `python -m app.cli drain`
 
@@ -126,8 +127,10 @@ down are replayed on reconnect (`catch_up=True`) and duplicates are dropped.
 1. Open the signal on `/dashboard` — the parse of every version is shown.
 2. If the parser should have handled it, add the pattern
    (`app/signals/patterns.py`), add a test, deploy, then `/admin` → **Re-parse**.
-3. If it is a one-off, `/admin` → **Override** and record why. The signal is
-   then frozen and shown as manually set.
+3. If it is a one-off, `/admin` → **Signals** → **Correct**, and write why. The
+   reason is required. The signal is then frozen, shown as manually set on the
+   public dashboard, and the change appears in the audit log with the old and
+   new values.
 
 ### A result looks wrong
 
@@ -150,22 +153,35 @@ python -m app.cli evaluate
 
 ## Backups
 
-Everything that matters is the database plus two files.
+`scripts/backup.sh` handles both databases and the credentials, and prunes old
+copies. Run it from the install directory:
 
 ```bash
-# PostgreSQL
-pg_dump -U signal signals | gzip > /backup/signals-$(date +%F).sql.gz
-
-# SQLite (safe while running)
-sqlite3 data/signals.db ".backup '/backup/signals-$(date +%F).db'"
-
-# Credentials — back up separately and encrypted.
-#   .env
-#   data/telegram.session   <- this file is a login to the Telegram account
+bash scripts/backup.sh                 # daily  -> ./backups/daily
+bash scripts/backup.sh --weekly        # weekly -> ./backups/weekly
+bash scripts/backup.sh --dir /backup   # somewhere else
 ```
 
-Restore is `psql < dump` or copying the SQLite file back. Keep at least a
-week of daily dumps; the message history is the audit trail behind every
+Schedule it as the service user:
+
+```bash
+crontab -e
+15 3 * * *  cd /opt/signal && bash scripts/backup.sh          >> data/backup.log 2>&1
+30 3 * * 0  cd /opt/signal && bash scripts/backup.sh --weekly >> data/backup.log 2>&1
+```
+
+It keeps 14 daily and 8 weekly copies by default (`KEEP_DAILY`, `KEEP_WEEKLY`).
+
+Two things come out of it:
+
+* **The database** — a `pg_dump` for PostgreSQL, or a consistent SQLite
+  snapshot taken with the backup API (safe while the service is writing).
+* **The credentials** — `.env` and `data/telegram.session`, in a separate
+  archive at mode 600. That session file is a login to the Telegram account:
+  encrypt it before it leaves the server, and never put it on public storage.
+
+Restore is `gunzip -c dump.sql.gz | psql`, or copying the SQLite file back.
+Keep at least a week; the message history is the audit trail behind every
 published number.
 
 ---
@@ -196,19 +212,49 @@ missing tables; it never alters existing ones.
 | `duplicate … ignored` | Replay after restart; nothing sent |
 | `delivered …/… v1 to LINE (id)` | Push accepted by LINE |
 | `retrying …/… v1 in 5s` | Transient LINE failure, will retry |
-| `giving up on … after 5 attempts` | Marked `FAILED`, needs a requeue |
+| `giving up on … after 3 attempts` | Marked `FAILED`, needs a requeue |
+| `Old hash: … / New hash: …` | An edit was detected; both revisions logged |
+| `Telegram reconnecting` / `Telegram reconnected` | Connection dropped and came back |
 | `signal … created from …` | A message parsed as a trade |
 | `signal … already resolved; edit v3 recorded only` | Verdict kept, history appended |
 | `result engine updated N signal(s)` | Results changed on this pass |
 
 Logs are timestamped in Asia/Bangkok and carry no credentials.
 
+Under systemd the journal rotates them for you. To also write a rotating file,
+set `LOG_FILE=./logs/app.log` (`LOG_MAX_BYTES`, `LOG_BACKUP_COUNT` control the
+rotation).
+
+### Audit log
+
+Longer-lived than the logs, and the record behind the published numbers:
+`/admin` → **Audit log**, or `GET /api/admin/audit`. It captures signal
+creation and edits, every TP and SL hit, cancellations, manual corrections with
+old and new values, admin sign-ins including failed ones, LINE sends and
+failures, and Telegram reconnects. Nothing deletes from it.
+
+---
+
+## Monitoring
+
+`/admin` → **Overview** shows a light per component (section 56):
+
+| Light | Meaning |
+|---|---|
+| GREEN | The component checked in within the last two minutes |
+| YELLOW | Running but degraded — LINE in test mode, or a large queue |
+| RED | No heartbeat, or the check failed |
+
+Components write a heartbeat to the database every 30 seconds, so the lights
+are accurate even when the API runs as a separate process from the listener.
+**System status** shows the raw heartbeats and how long ago each arrived.
+
 ---
 
 ## Restarting safely
 
 ```bash
-sudo systemctl restart signal-bridge
+sudo systemctl restart telegram-line-forwarder
 ```
 
 A restart is always safe: delivery state lives in the database, duplicate

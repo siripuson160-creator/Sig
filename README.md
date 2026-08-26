@@ -96,9 +96,9 @@ curl -fsSL https://raw.githubusercontent.com/siripuson160-creator/Sig/main/scrip
 คำสั่งที่ใช้บ่อย:
 
 ```bash
-sudo systemctl status signal-bridge     # ดูสถานะ
-sudo journalctl -u signal-bridge -f     # ดู log สด
-sudo systemctl restart signal-bridge    # รีสตาร์ท
+sudo systemctl status telegram-line-forwarder     # ดูสถานะ
+sudo journalctl -u telegram-line-forwarder -f     # ดู log สด
+sudo systemctl restart telegram-line-forwarder    # รีสตาร์ท
 ```
 
 ## Manual install
@@ -292,10 +292,31 @@ members: the public API only answers `GET`.
 - **Methodology** — every rule above, published verbatim from the live
   configuration
 
-`/admin` — operators only, `X-Admin-Key` (`ADMIN_API_KEY`). System status, the
-LINE delivery queue with requeue, re-parse, force re-evaluation, and manual
-result correction. A manual result freezes the signal and is labelled as
-manually set on the public dashboard.
+The page refreshes itself when the data changes: a server-sent event stream,
+falling back to polling if a proxy buffers it.
+
+`/admin` — operators only, behind a password sign-in (`ADMIN_PASSWORD`; scripts
+can still use `X-Admin-Key`). Overview with status lights, messages, signals,
+edit history, statistics, audit log, system status and the settings in force.
+
+### What an administrator cannot do
+
+- **Type in a statistic.** There is no field anywhere that sets a win rate, a
+  profit total or a signal count; every number is computed from the signals
+  table. A test asserts no API schema exposes one.
+- **Delete anything.** No delete route exists for signals, messages or the
+  audit log. A test asserts the OpenAPI schema has no `DELETE` at all.
+- **Change a result quietly.** Correcting one trade is allowed and needs a
+  written reason. It records the old value, the new value, who changed it,
+  when and why, marks the signal as manually set on the public dashboard, and
+  freezes it so the price engine stops touching it.
+
+### Audit log
+
+Every one of these is recorded: signal created, signal edited, result updated,
+TP hit, SL hit, signal cancelled, admin sign-in (including failures), admin
+action, LINE send, LINE failure, and Telegram reconnect. The log is
+append-only.
 
 ### Why no money figures
 
@@ -321,7 +342,9 @@ The ones worth thinking about:
 | `ENTRY_FILL_WINDOW_HOURS` | 12 | After this, an unfilled signal is cancelled |
 | `SIGNAL_EXPIRY_HOURS` | 72 | After this, an open trade is marked to market |
 | `POINT_SIZE` | 1.0 | 1 point of price movement |
-| `ADMIN_API_KEY` | *(empty)* | Empty disables `/admin` entirely |
+| `ADMIN_PASSWORD` | *(empty)* | Empty disables `/admin` entirely |
+| `DRY_RUN` | `false` | `true` stores everything but sends nothing to LINE |
+| `LINE_MAX_ATTEMPTS` | `3` | Retries wait 2s, 5s, 10s, then FAILED |
 
 ---
 
@@ -335,13 +358,47 @@ python -m app.cli evaluate    # run the result engine once
 python -m app.cli drain       # flush the LINE queue once
 python -m app.cli stats       # print the overview as JSON
 python -m app.main --only api # run just the web tier
+
+bash scripts/backup.sh             # daily database + credentials backup
+bash scripts/backup.sh --weekly    # the weekly copy, kept for longer
 ```
+
+### Test mode
+
+`DRY_RUN=true` receives, parses and stores everything exactly as normal, but
+sends nothing to LINE. The dashboard and the admin console both say so while it
+is on. Set it to `false` when you are ready to go live.
 
 `scripts/install.sh` also handles updates and can reinstall just the service
 (`--service-only`). Other deployment files are in [`deploy/`](deploy/): a
 Dockerfile, a `docker-compose.yml` with PostgreSQL, and an nginx sample that
 keeps `/admin` behind an IP allow-list. The runbook — backups, log locations, common failures
 — is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+---
+
+## API
+
+The dashboard uses `/api/public/*`. The paths named in the brief are served as
+well, and both go through the same code:
+
+| Path | Returns |
+|---|---|
+| `GET /api/dashboard/summary` | Summary cards |
+| `GET /api/dashboard/daily`, `/weekly`, `/monthly` | Period breakdowns |
+| `GET /api/dashboard/equity` | Cumulative P/L curve |
+| `GET /api/signals` | Signal list, with filters |
+| `GET /api/signals/{id}` | One signal |
+| `GET /api/signals/{id}/history` | Every version and every parse |
+| `GET /api/statistics` | Summary plus the breakdowns |
+| `GET /api/public/stream` | Server-sent events when data changes |
+| `GET /performance-methodology` | The methodology page |
+
+Period selectors accepted by the range parameter: `today`, `yesterday`, `7d`,
+`30d`, `90d`, `3m`, `6m`, `1y`, `wtd`, `mtd`, `ytd`, `all`, and `custom` with
+`date_from` / `date_to`.
+
+Full generated documentation is at `/api/docs`.
 
 ---
 
@@ -355,6 +412,13 @@ keeps `/admin` behind an IP allow-list. The runbook — backups, log locations, 
 The suite covers the parser against the brief's examples, duplicate and edit
 handling, LINE delivery and retries, the result engine (including the
 same-candle rules), the statistics, and the API.
+
+`tests/test_acceptance.py` follows the brief's own acceptance tests, one test
+per numbered section, so a run can be checked off against it:
+
+```bash
+.venv/bin/python -m pytest tests/test_acceptance.py -v
+```
 
 To look at the dashboard with plausible data before going live:
 

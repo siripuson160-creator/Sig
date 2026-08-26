@@ -13,8 +13,18 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import audit
 from app.config import settings
-from app.db.models import Direction, Signal, SignalResult, SignalStatus, SignalVersion, TelegramMessage, utcnow
+from app.db.models import (
+    AuditEvent,
+    Direction,
+    Signal,
+    SignalResult,
+    SignalStatus,
+    SignalVersion,
+    TelegramMessage,
+    utcnow,
+)
 from app.signals.parser import ParsedSignal, parse_signal
 
 log = logging.getLogger(__name__)
@@ -85,6 +95,15 @@ async def _create_signal(session: AsyncSession, message: TelegramMessage, parsed
         message.version,
         signal.is_complete,
     )
+    await audit.record(
+        session,
+        AuditEvent.SIGNAL_CREATED,
+        entity_type="signal",
+        entity_id=signal.signal_id,
+        summary=f"Signal created from message {message.chat_id}/{message.message_id} v{message.version}",
+        new_value=audit.signal_snapshot(signal),
+        actor="telegram",
+    )
     return signal
 
 
@@ -107,6 +126,7 @@ async def _update_signal(
         await _snapshot(session, signal, message, parsed)
         return signal
 
+    before = audit.signal_snapshot(signal)
     _apply_parse(signal, parsed, message)
     signal.source_version = message.version
     signal.signal_time = message.created_at or message.received_at
@@ -114,6 +134,19 @@ async def _update_signal(
     await session.flush()
     await _snapshot(session, signal, message, parsed)
     log.info("signal %s updated from edit v%s (complete=%s)", signal.signal_id, message.version, signal.is_complete)
+
+    old, new = audit.diff(before, audit.signal_snapshot(signal))
+    await audit.record(
+        session,
+        AuditEvent.SIGNAL_EDITED,
+        entity_type="signal",
+        entity_id=signal.signal_id,
+        summary=f"Signal updated from Telegram edit v{message.version}",
+        old_value=old,
+        new_value=new,
+        reason="source message was edited",
+        actor="telegram",
+    )
     return signal
 
 

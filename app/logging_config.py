@@ -7,6 +7,8 @@ are only read from the environment and are never passed to a logger.
 from __future__ import annotations
 
 import logging
+import logging.handlers
+import os
 import sys
 from datetime import datetime
 
@@ -22,12 +24,30 @@ class _LocalTimeFormatter(logging.Formatter):
 
 
 def configure_logging(level: str | None = None) -> None:
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(_LocalTimeFormatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
+    formatter = _LocalTimeFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+
+    # Section 54: rotate on disk when a log file is configured. Under systemd
+    # the journal already rotates, so LOG_FILE is normally left empty.
+    if settings.log_file:
+        directory = os.path.dirname(os.path.abspath(settings.log_file))
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        handlers.append(
+            logging.handlers.RotatingFileHandler(
+                settings.log_file,
+                maxBytes=settings.log_max_bytes,
+                backupCount=settings.log_backup_count,
+                encoding="utf-8",
+            )
+        )
 
     root = logging.getLogger()
     root.handlers.clear()
-    root.addHandler(handler)
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
     root.setLevel(getattr(logging, (level or settings.log_level).upper(), logging.INFO))
 
     # Third-party noise.

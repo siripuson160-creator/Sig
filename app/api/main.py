@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api.routes_admin import router as admin_router
+from app.api.routes_compat import router as compat_router
 from app.api.routes_public import router as public_router
 from app.config import settings
 from app.db.session import init_db
@@ -50,6 +51,7 @@ def create_app(*, init_database: bool = True) -> FastAPI:
     )
 
     app.include_router(public_router)
+    app.include_router(compat_router)
     app.include_router(admin_router)
 
     static_dir = os.path.join(WEB_DIR, "static")
@@ -67,6 +69,11 @@ def create_app(*, init_database: bool = True) -> FastAPI:
     @app.get("/admin", include_in_schema=False)
     async def admin() -> FileResponse:
         return FileResponse(os.path.join(WEB_DIR, "admin.html"))
+
+    @app.get("/performance-methodology", include_in_schema=False)
+    async def methodology_page() -> RedirectResponse:
+        """The URL section 45 names; the content lives on the dashboard tab."""
+        return RedirectResponse("/dashboard#/methodology")
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict:

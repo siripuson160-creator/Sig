@@ -122,13 +122,29 @@ async def test_admin_can_override_a_result(client, session):
     response = await client.patch(
         f"/api/admin/signals/{signal_id}",
         headers=ADMIN,
-        json={"result": "WIN", "status": "TP1_HIT", "profit_points": 10, "note": "checked against broker chart"},
+        json={
+            "result": "WIN",
+            "status": "TP1_HIT",
+            "profit_points": 10,
+            "reason": "checked against the broker chart",
+        },
     )
     assert response.status_code == 200
     body = response.json()
     assert body["result"] == "WIN"
     assert body["manual_override"] is True
-    assert body["note"] == "checked against broker chart"
+
+
+async def test_a_correction_without_a_reason_is_refused(client, session):
+    """Section 46: nothing changes without a recorded reason."""
+    session.add(make_signal(offset_minutes=0, result=SignalResult.LOSS, points=-10))
+    await session.commit()
+    signal_id = (await client.get("/api/public/signals")).json()["items"][0]["signal_id"]
+
+    response = await client.patch(
+        f"/api/admin/signals/{signal_id}", headers=ADMIN, json={"result": "WIN", "profit_points": 10}
+    )
+    assert response.status_code == 422
 
 
 async def test_admin_message_queue(client, session):

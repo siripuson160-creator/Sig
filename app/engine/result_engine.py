@@ -30,9 +30,12 @@ from typing import Awaitable, Callable, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import audit
 from app.config import settings
 from app.db.models import (
     OPEN_STATUSES,
+    AuditEvent,
+    ComponentStatus,
     Direction,
     Signal,
     SignalResult,
@@ -325,6 +328,11 @@ class ResultEngine:
                     updated = await self.run_once(session)
                 if updated:
                     log.info("result engine updated %s signal(s)", updated)
+                await audit.heartbeat(
+                    "results",
+                    ComponentStatus.UP if self.provider.available else ComponentStatus.DEGRADED,
+                    f"provider={self.provider.name}",
+                )
             except Exception:  # pragma: no cover - keep the loop alive
                 log.exception("result engine iteration failed")
             try:
@@ -371,8 +379,39 @@ class ResultEngine:
                 return []
             return await cache.get_candles(session, self.provider, symbol, tf, start, stop)
 
+        before = audit.signal_snapshot(signal)
         outcome = await evaluate(spec, candles, drilldown=drilldown)
-        return _apply_outcome(signal, outcome)
+        if not _apply_outcome(signal, outcome):
+            return False
+
+        await _audit_outcome(session, signal, before, outcome)
+        return True
+
+
+async def _audit_outcome(session: AsyncSession, signal: Signal, before: dict, outcome: Outcome) -> None:
+    """Record what the engine decided and why (section 44)."""
+    old, new = audit.diff(before, audit.signal_snapshot(signal))
+    status = signal.status
+    if status in (SignalStatus.TP1_HIT, SignalStatus.TP2_HIT, SignalStatus.TP3_HIT):
+        event, summary = AuditEvent.TP_HIT, f"TP{signal.max_tp_hit} hit"
+    elif status == SignalStatus.SL_HIT:
+        event, summary = AuditEvent.SL_HIT, "SL hit"
+    elif status == SignalStatus.CANCELLED:
+        event, summary = AuditEvent.SIGNAL_CANCELLED, "Signal cancelled: entry never traded"
+    else:
+        event, summary = AuditEvent.SIGNAL_RESULT_UPDATED, f"Status is now {status.value}"
+
+    await audit.record(
+        session,
+        event,
+        entity_type="signal",
+        entity_id=signal.signal_id,
+        summary=summary,
+        old_value=old,
+        new_value=new,
+        reason=outcome.note,
+        actor=f"result-engine:{signal.price_source}",
+    )
 
 
 def _apply_outcome(signal: Signal, outcome: Outcome) -> bool:

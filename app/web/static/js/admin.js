@@ -1,5 +1,6 @@
-/* Admin console. The key is held in sessionStorage only — it is never put in
-   a URL, never logged, and is cleared when the tab closes. */
+/* Admin console (sections 42, 43, 44, 56, 64).
+   Two things this file deliberately does not have: any input that sets a
+   statistic, and any way to delete history. */
 
 import {
   api,
@@ -8,6 +9,7 @@ import {
   directionChip,
   el,
   emptyState,
+  percent,
   points,
   price,
   resultChip,
@@ -15,68 +17,82 @@ import {
   statusChip,
 } from './util.js';
 
-const KEY_STORE = 'signal-admin-key';
+const TOKEN_STORE = 'signal-admin-token';
 const view = document.getElementById('view');
 const signOutButton = document.getElementById('sign-out');
 
-const state = { tab: 'status', messageFilter: '' };
+const state = { tab: 'overview', messageFilter: '', auditFilter: '' };
 
-function adminKey() {
+/* ------------------------------------------------------------------- auth */
+function token() {
   try {
-    return sessionStorage.getItem(KEY_STORE) || '';
+    return sessionStorage.getItem(TOKEN_STORE) || '';
   } catch (_) {
     return '';
   }
 }
 
-function setAdminKey(value) {
+function setToken(value) {
   try {
-    if (value) sessionStorage.setItem(KEY_STORE, value);
-    else sessionStorage.removeItem(KEY_STORE);
+    if (value) sessionStorage.setItem(TOKEN_STORE, value);
+    else sessionStorage.removeItem(TOKEN_STORE);
   } catch (_) {
-    /* private mode — the key simply lives for this page load */
+    /* private mode: the session lasts for this page load only */
   }
 }
 
 async function adminApi(path, options = {}) {
-  return api(path, { ...options, headers: { 'X-Admin-Key': adminKey(), ...(options.headers || {}) } });
+  return api(path, {
+    ...options,
+    headers: { Authorization: `Bearer ${token()}`, ...(options.headers || {}) },
+  });
 }
 
-/* ------------------------------------------------------------------ login */
 function renderLogin(message = '') {
   signOutButton.hidden = true;
-  const input = el('input', { class: 'input', type: 'password', placeholder: 'Admin key', style: 'flex:1' });
+  const input = el('input', { class: 'input', type: 'password', placeholder: 'Admin password', style: 'flex:1' });
+
   const submit = async () => {
-    setAdminKey(input.value.trim());
-    await boot();
+    try {
+      const result = await api('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: input.value }),
+      });
+      setToken(result.token);
+      await boot();
+    } catch (error) {
+      renderLogin(error.status === 401 ? 'Wrong password.' : error.message);
+    }
   };
+
   clear(view).append(
     el('div', { class: 'panel', style: 'max-width:440px;margin:48px auto' }, [
       el('div', { class: 'panel-head' }, [el('h2', { text: 'Administrator sign-in' })]),
       el('div', { class: 'panel-body stack', style: 'gap:12px' }, [
         message ? el('div', { class: 'notice warn' }, [message]) : null,
-        el('div', { class: 'row' }, [
-          input,
-          el('button', { class: 'btn primary', text: 'Sign in', onclick: submit }),
-        ]),
+        el('div', { class: 'row' }, [input, el('button', { class: 'btn primary', text: 'Sign in', onclick: submit })]),
         el('div', {
           class: 'small faint',
-          text: 'The key is the ADMIN_API_KEY from the server environment. It is kept in this tab only.',
+          text: 'ADMIN_PASSWORD from the server environment. Sign-ins, successful or not, are recorded in the audit log.',
         }),
       ]),
     ])
   );
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') submit();
-  });
+  input.addEventListener('keydown', (event) => event.key === 'Enter' && submit());
   input.focus();
 }
 
 /* ------------------------------------------------------------------ shell */
 const TABS = [
-  { id: 'status', label: 'Status' },
-  { id: 'queue', label: 'LINE queue' },
+  { id: 'overview', label: 'Overview' },
+  { id: 'messages', label: 'Messages' },
   { id: 'signals', label: 'Signals' },
+  { id: 'edits', label: 'Edit history' },
+  { id: 'statistics', label: 'Statistics' },
+  { id: 'audit', label: 'Audit log' },
+  { id: 'system', label: 'System status' },
+  { id: 'settings', label: 'Settings' },
 ];
 
 function renderShell(body) {
@@ -113,23 +129,66 @@ function kv(key, value, tone = '') {
   ]);
 }
 
-/* ----------------------------------------------------------------- status */
-async function renderStatus() {
+/** GREEN / YELLOW / RED light for one component (section 56). */
+function lamp(label, colour, detail = '') {
+  const tone = { GREEN: 'ok', YELLOW: 'warn', RED: 'bad' }[colour] || '';
+  return el('div', { class: 'kv' }, [
+    el('div', { class: 'k', text: label }),
+    el('div', { class: 'row', style: 'gap:8px;margin-top:4px' }, [
+      el('span', { class: `dot ${tone}` }),
+      el('span', { text: colour }),
+    ]),
+    detail ? el('div', { class: 'small faint', style: 'margin-top:4px', text: detail }) : null,
+  ]);
+}
+
+/* --------------------------------------------------------------- overview */
+async function renderOverview() {
   const status = await adminApi('/api/admin/status');
   const delivery = status.delivery || {};
 
   renderShell(
     el('div', {}, [
-      panel('System', [
+      status.dry_run
+        ? el('div', { class: 'panel' }, [
+            el('div', { class: 'panel-body' }, [
+              el('div', { class: 'notice warn' }, [
+                el('strong', { text: 'Test mode. ' }),
+                'DRY_RUN=true — messages are received, parsed and stored, but nothing is sent to LINE.',
+              ]),
+            ]),
+          ])
+        : null,
+      panel('Status', [
         el('div', { class: 'detail-grid' }, [
-          kv('Database', status.database ? 'connected' : 'unreachable', status.database ? 'pos' : 'neg'),
-          kv('LINE delivery', status.line_enabled ? (status.line_configured ? 'ready' : 'not configured') : 'disabled',
-            status.line_enabled && status.line_configured ? 'pos' : 'neg'),
-          kv('Telegram source', (status.telegram_source || []).join(', ') || 'not set'),
-          kv('Price provider', `${status.price_provider.name}${status.price_provider.available ? '' : ' (no data)'}`,
-            status.price_provider.available ? 'pos' : 'flat'),
+          lamp('Telegram', status.lights.telegram, (status.components.telegram || {}).detail || ''),
+          lamp('LINE', status.lights.line, (status.components.line || {}).detail || ''),
+          lamp('Database', status.lights.database),
+          lamp('Message queue', status.lights.queue, `${delivery.PENDING ?? 0} pending`),
+          lamp('Dashboard', status.lights.dashboard),
+        ]),
+      ]),
+      panel('Delivery queue', [
+        el('div', { class: 'detail-grid' }, [
+          kv('Pending', String(delivery.PENDING ?? 0)),
+          kv('Sent', String(delivery.SENT ?? 0), 'pos'),
+          kv('Failed', String(delivery.FAILED ?? 0), delivery.FAILED ? 'neg' : ''),
+          kv('Skipped', String(delivery.SKIPPED ?? 0)),
           kv('Open signals', String(status.open_signals)),
+        ]),
+        delivery.FAILED
+          ? el('div', { class: 'notice warn', style: 'margin-top:14px' }, [
+              `${delivery.FAILED} message(s) could not be delivered. Open Messages, filter FAILED, and requeue them.`,
+            ])
+          : null,
+      ]),
+      panel('Connections', [
+        el('div', { class: 'detail-grid' }, [
+          kv('Telegram source', (status.telegram_source || []).join(', ') || 'not set'),
+          kv('LINE configured', status.line_configured ? 'yes' : 'no', status.line_configured ? 'pos' : 'neg'),
+          kv('Price provider', `${status.price_provider.name}${status.price_provider.available ? '' : ' (no data)'}`),
           kv('Timezone', status.timezone),
+          kv('Signed in as', status.signed_in_as),
         ]),
         el('div', { class: 'row', style: 'margin-top:16px' }, [
           el('button', {
@@ -138,7 +197,6 @@ async function renderStatus() {
             onclick: async (event) => {
               const button = event.target;
               button.disabled = true;
-              button.textContent = 'Testing…';
               try {
                 const result = await adminApi('/api/admin/line/test', { method: 'POST' });
                 toast(result.ok ? `LINE ok — ${result.detail}` : `LINE failed — ${result.detail}`, result.ok);
@@ -146,30 +204,16 @@ async function renderStatus() {
                 toast(error.message, false);
               }
               button.disabled = false;
-              button.textContent = 'Test LINE credentials';
             },
           }),
         ]),
-      ]),
-      panel('Delivery queue', [
-        el('div', { class: 'detail-grid' }, [
-          kv('Pending', String(delivery.PENDING ?? 0), delivery.PENDING ? 'flat' : ''),
-          kv('Sent', String(delivery.SENT ?? 0), 'pos'),
-          kv('Failed', String(delivery.FAILED ?? 0), delivery.FAILED ? 'neg' : ''),
-          kv('Skipped', String(delivery.SKIPPED ?? 0)),
-        ]),
-        delivery.FAILED
-          ? el('div', { class: 'notice warn', style: 'margin-top:14px' }, [
-              `${delivery.FAILED} message(s) could not be delivered to LINE. Open the LINE queue tab to inspect and requeue them.`,
-            ])
-          : null,
       ]),
     ])
   );
 }
 
-/* ------------------------------------------------------------------ queue */
-async function renderQueue() {
+/* --------------------------------------------------------------- messages */
+async function renderMessages() {
   const query = new URLSearchParams({ limit: '100' });
   if (state.messageFilter) query.set('status', state.messageFilter);
   const data = await adminApi(`/api/admin/messages?${query}`);
@@ -200,12 +244,18 @@ async function renderQueue() {
         el('span', { class: `chip ${message.event_type === 'EDIT' ? 'open' : 'info'}`, text: message.event_type }),
       ]),
       el('td', { style: 'white-space:normal;max-width:420px' }, [
-        el('div', { class: 'small', style: 'font-family:var(--mono);white-space:pre-wrap', text: truncate(message.content, 220) }),
+        el('div', {
+          class: 'small',
+          style: 'font-family:var(--mono);white-space:pre-wrap',
+          text: truncate(message.content, 220),
+        }),
         message.last_error ? el('div', { class: 'small neg', text: message.last_error }) : null,
       ]),
       el('td', {}, [
         el('span', {
-          class: `chip ${message.status === 'SENT' ? 'win' : message.status === 'FAILED' ? 'loss' : message.status === 'PENDING' ? 'open' : 'neutral'}`,
+          class: `chip ${
+            message.status === 'SENT' ? 'win' : message.status === 'FAILED' ? 'loss' : message.status === 'PENDING' ? 'open' : 'neutral'
+          }`,
           text: message.status,
         }),
       ]),
@@ -220,7 +270,7 @@ async function renderQueue() {
                 event.target.disabled = true;
                 try {
                   await adminApi(`/api/admin/messages/${message.id}/requeue`, { method: 'POST' });
-                  toast('Message requeued for delivery.', true);
+                  toast('Requeued for delivery.', true);
                   renderTab();
                 } catch (error) {
                   toast(error.message, false);
@@ -235,24 +285,14 @@ async function renderQueue() {
   renderShell(
     el('div', { class: 'panel' }, [
       el('div', { class: 'panel-head' }, [
-        el('h2', { text: 'Telegram → LINE queue' }),
-        el('span', { class: 'panel-note', text: `${data.total} messages` }),
+        el('h2', { text: 'Telegram → LINE messages' }),
+        el('span', { class: 'panel-note', text: `${data.total} total` }),
         filter,
       ]),
       data.items.length
         ? el('div', { class: 'table-wrap' }, [
             el('table', {}, [
-              el('thead', {}, [
-                el('tr', {}, [
-                  el('th', { text: 'Received' }),
-                  el('th', { text: 'Message' }),
-                  el('th', { text: 'Type' }),
-                  el('th', { text: 'Content' }),
-                  el('th', { text: 'Status' }),
-                  el('th', { class: 'right', text: 'Tries' }),
-                  el('th', { text: '' }),
-                ]),
-              ]),
+              tableHead(['Received', 'Message', 'Type', 'Content', 'Status', 'Tries', '']),
               el('tbody', {}, rows),
             ]),
           ])
@@ -261,12 +301,230 @@ async function renderQueue() {
   );
 }
 
+function tableHead(labels) {
+  return el('thead', {}, [el('tr', {}, labels.map((label) => el('th', { text: label })))]);
+}
+
 function truncate(text, limit) {
   if (!text) return '';
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
-/* ---------------------------------------------------------------- signals */
+/* ----------------------------------------------------------- edit history */
+async function renderEdits() {
+  const data = await adminApi('/api/admin/edit-history?limit=50');
+
+  renderShell(
+    el('div', {}, [
+      el('div', { class: 'panel' }, [
+        el('div', { class: 'panel-head' }, [
+          el('h2', { text: 'Edited messages' }),
+          el('span', { class: 'panel-note', text: 'every version is kept; nothing here can be deleted' }),
+        ]),
+        el('div', { class: 'panel-body' }, [
+          data.items.length
+            ? el(
+                'div',
+                {},
+                data.items.map((thread) =>
+                  el('div', { style: 'margin-bottom:28px' }, [
+                    el('div', { class: 'row', style: 'gap:8px;margin-bottom:10px' }, [
+                      el('span', { class: 'chip info', text: `${thread.versions} versions` }),
+                      el('span', { class: 'muted small', text: `message ${thread.message_id} in chat ${thread.chat_id}` }),
+                    ]),
+                    el(
+                      'div',
+                      { class: 'timeline' },
+                      thread.history.map((message) =>
+                        el('div', { class: `timeline-item${message.event_type === 'EDIT' ? ' edit' : ''}` }, [
+                          el('div', { class: 'timeline-head' }, [
+                            el('span', {
+                              class: `chip ${message.event_type === 'EDIT' ? 'open' : 'info'}`,
+                              text: `${message.event_type} · v${message.version}`,
+                            }),
+                            el('span', { text: dateTime(message.edited_at || message.created_at) }),
+                            el('span', { class: 'faint small', text: `hash ${(message.content_hash || '').slice(0, 12)}` }),
+                          ]),
+                          el('div', { class: 'msg', text: message.content }),
+                        ])
+                      )
+                    ),
+                  ])
+                )
+              )
+            : emptyState('No message has been edited yet.'),
+        ]),
+      ]),
+    ])
+  );
+}
+
+/* --------------------------------------------------------------- audit log */
+async function renderAudit() {
+  const query = new URLSearchParams({ limit: '150' });
+  if (state.auditFilter) query.set('event', state.auditFilter);
+  const data = await adminApi(`/api/admin/audit?${query}`);
+
+  const filter = el(
+    'select',
+    {
+      class: 'select',
+      style: 'margin-left:auto',
+      onchange: (event) => {
+        state.auditFilter = event.target.value;
+        renderTab();
+      },
+    },
+    [
+      el('option', { value: '', text: 'All events' }),
+      ...(data.events || []).map((event) =>
+        el('option', { value: event, text: event.replace(/_/g, ' '), selected: state.auditFilter === event })
+      ),
+    ]
+  );
+
+  const tone = (event) => {
+    if (event.includes('FAILED') || event === 'SL_HIT') return 'loss';
+    if (event === 'TP_HIT' || event === 'LINE_SEND') return 'win';
+    if (event.startsWith('ADMIN')) return 'info';
+    return 'neutral';
+  };
+
+  const rows = data.items.map((entry) =>
+    el('tr', {}, [
+      el('td', { class: 'small muted', text: dateTime(entry.ts) }),
+      el('td', {}, [el('span', { class: `chip ${tone(entry.event)}`, text: entry.event.replace(/_/g, ' ') })]),
+      el('td', { style: 'white-space:normal;max-width:360px' }, [
+        el('div', { text: entry.summary }),
+        entry.reason ? el('div', { class: 'small faint', text: `Reason: ${entry.reason}` }) : null,
+        entry.old_value || entry.new_value
+          ? el('div', { class: 'small diff' }, [
+              entry.old_value ? el('span', { class: 'neg', text: `− ${JSON.stringify(entry.old_value)}` }) : null,
+              entry.old_value && entry.new_value ? el('br') : null,
+              entry.new_value ? el('span', { class: 'pos', text: `+ ${JSON.stringify(entry.new_value)}` }) : null,
+            ])
+          : null,
+      ]),
+      el('td', { class: 'small', text: entry.actor }),
+      el('td', { class: 'small faint', text: entry.entity_id ? String(entry.entity_id).slice(0, 18) : '—' }),
+    ])
+  );
+
+  renderShell(
+    el('div', { class: 'panel' }, [
+      el('div', { class: 'panel-head' }, [
+        el('h2', { text: 'Audit log' }),
+        el('span', { class: 'panel-note', text: `${data.total} entries · append-only` }),
+        filter,
+      ]),
+      data.items.length
+        ? el('div', { class: 'table-wrap' }, [
+            el('table', {}, [tableHead(['When', 'Event', 'What happened', 'Actor', 'Entity']), el('tbody', {}, rows)]),
+          ])
+        : emptyState('Nothing recorded yet.'),
+    ])
+  );
+}
+
+/* --------------------------------------------------------------- statistics */
+async function renderStatistics() {
+  const data = await adminApi('/api/admin/statistics');
+  const o = data.overview;
+
+  renderShell(
+    el('div', {}, [
+      el('div', { class: 'panel' }, [
+        el('div', { class: 'panel-body' }, [
+          el('div', { class: 'notice' }, [
+            el('strong', { text: 'These numbers cannot be edited. ' }),
+            'They are computed from the signals table by the statistics engine every time this page loads. ' +
+              'There is no field anywhere in this console that sets a win rate, a profit total or a signal count.',
+          ]),
+        ]),
+      ]),
+      panel('All time', [
+        el('div', { class: 'detail-grid' }, [
+          kv('Total signals', String(o.total_signals)),
+          kv('Wins', String(o.wins), 'pos'),
+          kv('Losses', String(o.losses), 'neg'),
+          kv('Win rate', percent(o.win_rate)),
+          kv('Total P/L', `${points(o.total_pl_points)} pts`, signClass(o.total_pl_points)),
+          kv('Profit factor', o.profit_factor === null ? '—' : o.profit_factor.toFixed(2)),
+          kv('Max drawdown', `${points(o.max_drawdown_points)} pts`, 'neg'),
+          kv('Average P/L', `${points(o.expectancy_points)} pts`, signClass(o.expectancy_points)),
+          kv('Risk : reward', o.rr_display || '—'),
+          kv('Pending', String(o.pending)),
+          kv('Ambiguous', String(o.ambiguous)),
+          kv('Cancelled', String(o.cancelled)),
+        ]),
+      ]),
+    ])
+  );
+}
+
+/* ------------------------------------------------------------ system status */
+async function renderSystem() {
+  const status = await adminApi('/api/admin/status');
+  const components = status.components || {};
+
+  renderShell(
+    el('div', {}, [
+      panel('Components', [
+        Object.keys(components).length
+          ? el('div', { class: 'table-wrap' }, [
+              el('table', {}, [
+                tableHead(['Component', 'Status', 'Detail', 'Last heartbeat']),
+                el(
+                  'tbody',
+                  {},
+                  Object.entries(components).map(([name, info]) =>
+                    el('tr', {}, [
+                      el('td', { text: name }),
+                      el('td', {}, [
+                        el('span', {
+                          class: `chip ${info.status === 'UP' ? 'win' : info.status === 'DEGRADED' ? 'open' : 'loss'}`,
+                          text: info.status,
+                        }),
+                      ]),
+                      el('td', { class: 'small muted', text: info.detail || '—' }),
+                      el('td', { class: 'small faint', text: `${Math.round(info.seconds_ago)}s ago` }),
+                    ])
+                  )
+                ),
+              ]),
+            ])
+          : emptyState('No component has reported in yet. Start the bridge with python -m app.main.'),
+        el('div', {
+          class: 'panel-note',
+          style: 'margin-top:12px',
+          text: 'A component that has not checked in for two minutes is shown as DOWN.',
+        }),
+      ]),
+      panel('Price provider', [
+        el('div', { class: 'detail-grid' }, [
+          kv('Provider', status.price_provider.name),
+          kv('Price data', status.price_provider.available ? 'available' : 'none configured'),
+          kv('Available providers', (status.available_price_providers || []).join(', ')),
+        ]),
+      ]),
+    ])
+  );
+}
+
+/* ---------------------------------------------------------------- settings */
+async function renderSettings() {
+  const data = await adminApi('/api/admin/settings');
+  const rows = Object.entries(data).filter(([key]) => key !== 'note');
+
+  renderShell(
+    panel('Configuration in force', [
+      el('div', { class: 'detail-grid' }, rows.map(([key, value]) => kv(key.replace(/_/g, ' '), String(value)))),
+      el('div', { class: 'notice', style: 'margin-top:16px' }, [data.note]),
+    ])
+  );
+}
+
+/* ----------------------------------------------------------------- signals */
 async function renderSignals() {
   const data = await api('/api/public/signals?limit=100&complete_only=false');
 
@@ -289,7 +547,7 @@ async function renderSignals() {
       el('td', { class: 'row', style: 'gap:6px' }, [
         el('button', { class: 'btn', text: 'Re-parse', onclick: () => action(`/api/admin/signals/${signal.signal_id}/reparse`) }),
         el('button', { class: 'btn', text: 'Evaluate', onclick: () => action(`/api/admin/signals/${signal.signal_id}/evaluate`) }),
-        el('button', { class: 'btn', text: 'Override', onclick: () => openOverride(signal) }),
+        el('button', { class: 'btn', text: 'Correct', onclick: () => openOverride(signal) }),
       ]),
     ])
   );
@@ -303,19 +561,7 @@ async function renderSignals() {
       data.items.length
         ? el('div', { class: 'table-wrap' }, [
             el('table', {}, [
-              el('thead', {}, [
-                el('tr', {}, [
-                  el('th', { text: 'Posted' }),
-                  el('th', { text: 'Dir' }),
-                  el('th', { class: 'right', text: 'Entry' }),
-                  el('th', { class: 'right', text: 'SL' }),
-                  el('th', { class: 'right', text: 'TP1' }),
-                  el('th', { text: 'Status' }),
-                  el('th', { text: 'Result' }),
-                  el('th', { class: 'right', text: 'P/L' }),
-                  el('th', { text: 'Actions' }),
-                ]),
-              ]),
+              tableHead(['Posted', 'Dir', 'Entry', 'SL', 'TP1', 'Status', 'Result', 'P/L', 'Actions']),
               el('tbody', {}, rows),
             ]),
           ])
@@ -334,52 +580,53 @@ async function action(path) {
   }
 }
 
+/** Correcting one trade — with a mandatory reason (section 46). */
 function openOverride(signal) {
-  const status = el('select', { class: 'select' }, [
-    ...['TP1_HIT', 'TP2_HIT', 'TP3_HIT', 'SL_HIT', 'CLOSED', 'CANCELLED', 'AMBIGUOUS', 'ACTIVE', 'PENDING'].map((value) =>
+  const status = el(
+    'select',
+    { class: 'select' },
+    ['TP1_HIT', 'TP2_HIT', 'TP3_HIT', 'SL_HIT', 'CLOSED', 'CANCELLED', 'AMBIGUOUS', 'ACTIVE', 'PENDING'].map((value) =>
       el('option', { value, text: value, selected: signal.status === value })
-    ),
-  ]);
-  const result = el('select', { class: 'select' }, [
-    ...['WIN', 'LOSS', 'BREAKEVEN', 'AMBIGUOUS', 'CANCELLED', 'PENDING_RESULT'].map((value) =>
+    )
+  );
+  const result = el(
+    'select',
+    { class: 'select' },
+    ['WIN', 'LOSS', 'BREAKEVEN', 'AMBIGUOUS', 'CANCELLED', 'PENDING_RESULT'].map((value) =>
       el('option', { value, text: value, selected: signal.result === value })
-    ),
-  ]);
+    )
+  );
   const profit = el('input', { class: 'input', type: 'number', step: '0.01', min: '0', value: signal.profit_points ?? '' });
   const loss = el('input', { class: 'input', type: 'number', step: '0.01', min: '0', value: signal.loss_points ?? '' });
-  const note = el('input', { class: 'input', placeholder: 'Why is this being set by hand?', style: 'flex:1' });
-
-  const body = el('div', { class: 'panel-body stack', style: 'gap:12px' }, [
-    el('div', { class: 'notice warn' }, [
-      'A manual result freezes this signal: the price engine and later Telegram edits will no longer change it. ' +
-        'The dashboard marks it as manually set.',
-    ]),
-    field('Status', status),
-    field('Result', result),
-    field('Profit points', profit),
-    field('Loss points', loss),
-    field('Note', note),
-    el('div', { class: 'row', style: 'justify-content:flex-end' }, [
-      el('button', { class: 'btn', text: 'Release override', onclick: () => submit({ release_override: true }) }),
-      el('button', { class: 'btn primary', text: 'Save override', onclick: () => submit(null) }),
-    ]),
-  ]);
+  const reason = el('input', {
+    class: 'input',
+    placeholder: 'Why is this being corrected? (required)',
+    style: 'flex:1',
+  });
 
   async function submit(override) {
-    const payload = override || {
-      status: status.value,
-      result: result.value,
-      profit_points: profit.value === '' ? null : Number(profit.value),
-      loss_points: loss.value === '' ? null : Number(loss.value),
-      note: note.value || null,
-    };
+    if (!reason.value || reason.value.trim().length < 3) {
+      toast('A reason is required — it goes into the audit log.', false);
+      reason.focus();
+      return;
+    }
+    const payload = override
+      ? { release_override: true, reason: reason.value }
+      : {
+          status: status.value,
+          result: result.value,
+          profit_points: profit.value === '' ? null : Number(profit.value),
+          loss_points: loss.value === '' ? null : Number(loss.value),
+          reason: reason.value,
+        };
     try {
       await adminApi(`/api/admin/signals/${signal.signal_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      toast('Signal updated.', true);
+      toast('Signal corrected; the change is in the audit log.', true);
+      state.tab = 'signals';
       renderTab();
     } catch (error) {
       toast(error.message, false);
@@ -389,11 +636,26 @@ function openOverride(signal) {
   renderShell(
     el('div', { class: 'panel' }, [
       el('div', { class: 'panel-head' }, [
-        el('h2', { text: `Override ${signal.direction} ${signal.symbol || ''} @ ${price(signal.entry)}` }),
+        el('h2', { text: `Correct ${signal.direction} ${signal.symbol || ''} @ ${price(signal.entry)}` }),
         el('span', { class: 'spacer' }),
         el('button', { class: 'btn', text: 'Cancel', onclick: renderTab }),
       ]),
-      body,
+      el('div', { class: 'panel-body stack', style: 'gap:12px' }, [
+        el('div', { class: 'notice warn' }, [
+          'This records the old value, the new value, your account, the time and your reason in the audit log, ' +
+            'and marks the signal as manually set on the public dashboard. It also freezes the signal: the price ' +
+            'engine and later Telegram edits will stop changing it.',
+        ]),
+        field('Status', status),
+        field('Result', result),
+        field('Profit points', profit),
+        field('Loss points', loss),
+        field('Reason', reason),
+        el('div', { class: 'row', style: 'justify-content:flex-end' }, [
+          el('button', { class: 'btn', text: 'Release override', onclick: () => submit(true) }),
+          el('button', { class: 'btn primary', text: 'Save correction', onclick: () => submit(false) }),
+        ]),
+      ]),
     ])
   );
 }
@@ -409,7 +671,8 @@ function field(label, input) {
 function toast(message, ok) {
   const node = el('div', {
     class: `notice${ok ? '' : ' warn'}`,
-    style: 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:50;max-width:min(520px,92vw);box-shadow:var(--shadow)',
+    style:
+      'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:50;max-width:min(520px,92vw);box-shadow:var(--shadow)',
     text: message,
   });
   document.body.append(node);
@@ -417,27 +680,38 @@ function toast(message, ok) {
 }
 
 /* ------------------------------------------------------------------- boot */
-const RENDERERS = { status: renderStatus, queue: renderQueue, signals: renderSignals };
+const RENDERERS = {
+  overview: renderOverview,
+  messages: renderMessages,
+  signals: renderSignals,
+  edits: renderEdits,
+  statistics: renderStatistics,
+  audit: renderAudit,
+  system: renderSystem,
+  settings: renderSettings,
+};
 
 async function renderTab() {
   try {
     await RENDERERS[state.tab]();
   } catch (error) {
     if (error.status === 401) {
-      setAdminKey('');
-      renderLogin('That key was rejected.');
+      setToken('');
+      renderLogin('Your session expired. Sign in again.');
       return;
     }
     if (error.status === 503) {
-      renderLogin('The admin API is disabled: ADMIN_API_KEY is not set on the server.');
+      renderLogin('Admin is disabled: ADMIN_PASSWORD is not set on the server.');
       return;
     }
-    renderShell(el('div', { class: 'panel' }, [el('div', { class: 'panel-body' }, [el('div', { class: 'notice warn' }, [error.message])])]));
+    renderShell(
+      el('div', { class: 'panel' }, [el('div', { class: 'panel-body' }, [el('div', { class: 'notice warn' }, [error.message])])])
+    );
   }
 }
 
 async function boot() {
-  if (!adminKey()) {
+  if (!token()) {
     renderLogin();
     return;
   }
@@ -446,7 +720,7 @@ async function boot() {
 }
 
 signOutButton.addEventListener('click', () => {
-  setAdminKey('');
+  setToken('');
   renderLogin('Signed out.');
 });
 

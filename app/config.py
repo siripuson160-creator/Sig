@@ -50,12 +50,18 @@ class Settings(BaseSettings):
 
     # --------------------------------------------------------------------- line
     line_channel_access_token: str = ""
+    line_channel_secret: str = ""
     # Group id (Cxxxx), room id (Rxxxx) or user id (Uxxxx) to push to.
+    # LINE_GROUP_ID is the name used in the brief; LINE_TARGET_ID is accepted
+    # too because it also covers rooms and 1:1 chats.
+    line_group_id: str = ""
     line_target_id: str = ""
     line_enabled: bool = True
     line_api_base: str = "https://api.line.me"
     line_edit_prefix: str = "EDITED"
-    line_max_attempts: int = 5
+    # Section 58: ADD_EDITED_PREFIX=false forwards edits without the marker.
+    add_edited_prefix: bool = True
+    line_max_attempts: int = 3
     line_worker_interval_seconds: float = 1.0
     # LINE hard-limits a text message to 5000 characters.
     line_max_chars: int = 4900
@@ -81,13 +87,28 @@ class Settings(BaseSettings):
     entry_fill_window_hours: int = 12
     result_engine_interval_seconds: int = 60
 
+    # ---------------------------------------------------------------- test mode
+    # Section 57: receive, parse and store for real, but do not push to LINE.
+    dry_run: bool = False
+
     # ---------------------------------------------------------------------- api
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    # Required for /admin and /api/admin/*. Empty disables the admin surface.
+    # Password for the /admin login form (section 42).
+    admin_password: str = ""
+    # Machine-to-machine key for /api/admin/* (X-Admin-Key).
     admin_api_key: str = ""
+    admin_session_hours: int = 12
     cors_origins: str = "*"
     public_dashboard_enabled: bool = True
+    # How often the dashboard refreshes itself (section 47).
+    dashboard_refresh_seconds: int = 10
+
+    # ------------------------------------------------------------------ logging
+    # Empty keeps logs on stdout only (journald handles rotation there).
+    log_file: str = ""
+    log_max_bytes: int = 10_000_000
+    log_backup_count: int = 7
 
     # --------------------------------------------------------------- validators
     @field_validator("log_level")
@@ -113,6 +134,21 @@ class Settings(BaseSettings):
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
+
+    @property
+    def line_destination(self) -> str:
+        """The chat LINE pushes into: LINE_GROUP_ID wins, LINE_TARGET_ID is legacy."""
+        return (self.line_group_id or self.line_target_id).strip()
+
+    @property
+    def line_delivery_enabled(self) -> bool:
+        """False in dry-run: everything is stored, nothing is pushed."""
+        return self.line_enabled and not self.dry_run
+
+    @property
+    def admin_secret(self) -> str:
+        """What the /admin login checks against."""
+        return self.admin_password or self.admin_api_key
 
 
 @lru_cache

@@ -22,7 +22,9 @@ from telethon.tl.types import (
     MessageMediaPhoto,
 )
 
+from app import audit
 from app.config import settings
+from app.db.models import AuditEvent, ComponentStatus
 from app.db.session import session_scope
 from app.processor.message_processor import ingest_message
 
@@ -142,6 +144,11 @@ class TelegramListener:
         chat_id = int(event.chat_id)
         content, has_media = message_text(message)
 
+        # The shape section 54 asks for.
+        log.info("%s message detected", "Edited" if is_edit else "New")
+        log.info("Chat ID: %s", chat_id)
+        log.info("Message ID: %s", message.id)
+
         async with session_scope() as session:
             result = await ingest_message(
                 session,
@@ -156,6 +163,8 @@ class TelegramListener:
             )
 
         if result.created:
+            log.info("Version: %s", result.message.version if result.message else "?")
+            log.info("Sending to LINE")
             log.info(
                 "%s %s/%s v%s queued for LINE",
                 "EDIT" if is_edit else "NEW",
@@ -199,10 +208,52 @@ class TelegramListener:
             raise TelegramNotAuthorized("Telegram session was revoked; run 'python -m app.cli login'") from exc
 
         me = await self.client.get_me()
-        log.info("telegram connected as %s (id=%s)", getattr(me, "username", None) or me.first_name, me.id)
+        log.info("Telegram connected as %s (id=%s)", getattr(me, "username", None) or me.first_name, me.id)
+        await audit.heartbeat("telegram", ComponentStatus.UP, f"connected as {me.id}")
 
         self.register_handlers()
-        await self.client.run_until_disconnected()
+        self._watch_connection()
+        heartbeat_task = asyncio.create_task(self._heartbeat_loop(), name="telegram-heartbeat")
+        try:
+            await self.client.run_until_disconnected()
+        finally:
+            heartbeat_task.cancel()
+            await audit.heartbeat("telegram", ComponentStatus.DOWN, "listener stopped")
+
+    def _watch_connection(self) -> None:
+        """Log and audit reconnects (sections 44 and 52).
+
+        Telethon reconnects on its own; this only makes the fact visible, since
+        a silent reconnect looks identical to a stalled listener.
+        """
+
+        original = getattr(self.client, "_handle_auto_reconnect", None)
+        if original is None:
+            return
+
+        async def _wrapped():  # pragma: no cover - driven by the network
+            log.warning("Telegram reconnecting")
+            await audit.record_standalone(
+                AuditEvent.TELEGRAM_RECONNECT,
+                summary="Telegram connection dropped; reconnecting",
+                actor="telegram",
+            )
+            await original()
+            log.info("Telegram reconnected")
+            await audit.heartbeat("telegram", ComponentStatus.UP, "reconnected")
+
+        self.client._handle_auto_reconnect = _wrapped
+
+    async def _heartbeat_loop(self) -> None:
+        """Report liveness so the admin status lights are meaningful."""
+        while True:
+            connected = self.client.is_connected()
+            await audit.heartbeat(
+                "telegram",
+                ComponentStatus.UP if connected else ComponentStatus.DOWN,
+                "connected" if connected else "disconnected",
+            )
+            await asyncio.sleep(30)
 
     async def stop(self) -> None:
         self._stop.set()

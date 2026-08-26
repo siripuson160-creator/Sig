@@ -46,6 +46,7 @@ class ApiRunner:
     async def run(self) -> None:
         from app.api.main import create_app
 
+        asyncio.create_task(self._heartbeat_loop(), name="api-heartbeat")
         config = uvicorn.Config(
             create_app(init_database=False),
             host=settings.api_host,
@@ -56,6 +57,13 @@ class ApiRunner:
         )
         self._server = uvicorn.Server(config)
         await self._server.serve()
+
+    async def _heartbeat_loop(self) -> None:
+        from app import audit
+
+        while self._server is None or not self._server.should_exit:
+            await audit.heartbeat("dashboard", detail=f"port {settings.api_port}")
+            await asyncio.sleep(30)
 
     def stop(self) -> None:
         if self._server is not None:
@@ -109,22 +117,34 @@ async def run(components: set[str]) -> int:
     log.info("started components: %s", ", ".join(sorted(tasks)))
 
     waiter = asyncio.create_task(stop.wait(), name="shutdown")
-    done, _pending = await asyncio.wait({*tasks.values(), waiter}, return_when=asyncio.FIRST_COMPLETED)
-
     exit_code = 0
-    for task in done:
-        if task is waiter:
+    running = dict(tasks)
+
+    # A crash brings the process down so systemd restarts it; a component that
+    # simply has nothing to do (the LINE worker in test mode) must not.
+    while running:
+        done, _pending = await asyncio.wait({*running.values(), waiter}, return_when=asyncio.FIRST_COMPLETED)
+        if waiter in done:
             log.info("shutdown signal received")
-            continue
-        name = task.get_name()
-        if task.cancelled():
-            continue
-        error = task.exception()
-        if error is not None:
-            log.error("component %s crashed: %s", name, error, exc_info=error)
-            exit_code = 1
-        else:
-            log.warning("component %s exited", name)
+            break
+
+        crashed = False
+        for task in done:
+            name = task.get_name()
+            running.pop(name, None)
+            if task.cancelled():
+                continue
+            error = task.exception()
+            if error is not None:
+                log.error("component %s crashed: %s", name, error, exc_info=error)
+                exit_code = 1
+                crashed = True
+            else:
+                log.warning("component %s finished", name)
+        if crashed:
+            break
+    else:
+        log.warning("every component finished; nothing left to run")
 
     # Ask every component to finish on its own terms first.
     if line_worker is not None:

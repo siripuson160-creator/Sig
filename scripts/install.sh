@@ -25,7 +25,7 @@ REPO_URL="${REPO_URL:-https://github.com/siripuson160-creator/Sig.git}"
 BRANCH="${BRANCH:-main}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/signal}"
 SERVICE_USER="${SERVICE_USER:-signal}"
-SERVICE_NAME="signal-bridge"
+SERVICE_NAME="telegram-line-forwarder"
 
 SKIP_SETUP=false
 SERVICE_ONLY=false

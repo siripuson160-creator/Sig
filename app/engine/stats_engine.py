@@ -41,6 +41,29 @@ class Row:
     local_time: datetime
     resolved_local: datetime | None
     max_tp_hit: int
+    entry: float | None = None
+    sl: float | None = None
+    tp1: float | None = None
+
+    @property
+    def risk_points(self) -> float | None:
+        """Distance from entry to stop, in points (section 32)."""
+        if self.entry is None or self.sl is None:
+            return None
+        return round(abs(self.entry - self.sl) / settings.point_size, 2)
+
+    @property
+    def reward_points(self) -> float | None:
+        if self.entry is None or self.tp1 is None:
+            return None
+        return round(abs(self.tp1 - self.entry) / settings.point_size, 2)
+
+    @property
+    def rr_ratio(self) -> float | None:
+        risk, reward = self.risk_points, self.reward_points
+        if not risk or reward is None:
+            return None
+        return round(reward / risk, 2)
 
     @property
     def decided(self) -> bool:
@@ -77,6 +100,9 @@ def _to_row(signal: Signal) -> Row:
         local_time=_local(signal.signal_time),
         resolved_local=_local(signal.resolved_at),
         max_tp_hit=signal.max_tp_hit or 0,
+        entry=signal.entry,
+        sl=signal.sl,
+        tp1=signal.tp1,
     )
 
 
@@ -125,7 +151,49 @@ def summarize(rows: list[Row]) -> dict:
         "pending": sum(1 for r in rows if r.result == SignalResult.PENDING_RESULT.value),
         "ambiguous": sum(1 for r in rows if r.result == SignalResult.AMBIGUOUS.value),
         "cancelled": sum(1 for r in rows if r.result == SignalResult.CANCELLED.value),
+        **risk_reward(rows),
+        **tp_counts(decided),
         **streaks(decided),
+    }
+
+
+def risk_reward(rows: list[Row]) -> dict:
+    """Average risk, reward and R:R as planned when the signal was posted.
+
+    Measured from the stated levels (entry to stop, entry to TP1), not from
+    the outcome, so it describes the setups rather than the results.
+    """
+    risks = [r.risk_points for r in rows if r.risk_points]
+    rewards = [r.reward_points for r in rows if r.reward_points is not None]
+    ratios = [r.rr_ratio for r in rows if r.rr_ratio is not None]
+    avg_risk = round(sum(risks) / len(risks), 2) if risks else None
+    avg_reward = round(sum(rewards) / len(rewards), 2) if rewards else None
+    return {
+        "avg_risk_points": avg_risk,
+        "avg_reward_points": avg_reward,
+        "avg_rr_ratio": round(sum(ratios) / len(ratios), 2) if ratios else None,
+        "rr_display": f"1:{round(avg_reward / avg_risk, 2)}" if avg_risk and avg_reward else None,
+    }
+
+
+def tp_counts(decided: list[Row]) -> dict:
+    """How far trades ran (section 31).
+
+    A signal that reached TP2 counts under TP1 as well, because TP1 really was
+    hit on the way. ``tp_exact`` gives the non-overlapping view: the level each
+    trade actually finished at.
+    """
+    return {
+        "tp1_hit": sum(1 for r in decided if r.max_tp_hit >= 1),
+        "tp2_hit": sum(1 for r in decided if r.max_tp_hit >= 2),
+        "tp3_hit": sum(1 for r in decided if r.max_tp_hit >= 3),
+        "sl_hit": sum(1 for r in decided if r.is_loss),
+        "tp_exact": {
+            "TP1": sum(1 for r in decided if r.max_tp_hit == 1),
+            "TP2": sum(1 for r in decided if r.max_tp_hit == 2),
+            "TP3": sum(1 for r in decided if r.max_tp_hit == 3),
+        },
+        "tp_counting_rule": "cumulative: a signal that reached TP2 is counted under TP1 and TP2",
     }
 
 
@@ -286,30 +354,70 @@ def _histogram(values: list[float], buckets: int = 9) -> list[dict]:
     return out
 
 
-def range_bounds(range_key: str) -> tuple[datetime | None, datetime | None]:
-    """Translate ``today``/``7d``/``30d``/``mtd``/``all`` into UTC bounds."""
+def range_bounds(
+    range_key: str, *, date_from: str | None = None, date_to: str | None = None
+) -> tuple[datetime | None, datetime | None]:
+    """Translate a period selector into UTC bounds (sections 29, 40).
+
+    Understands ``today``, ``yesterday``, ``7d``/``30d``/``90d``, ``3m``/``6m``/
+    ``1y``, ``wtd`` (this week), ``mtd`` (this month), ``ytd`` (this year),
+    ``all``, and ``custom`` with explicit ``date_from`` / ``date_to`` (inclusive,
+    interpreted in the configured timezone).
+    """
     now_local = datetime.now(settings.tz)
     key = (range_key or "all").lower()
+    midnight = {"hour": 0, "minute": 0, "second": 0, "microsecond": 0}
+
+    if key == "custom" or date_from or date_to:
+        start = _parse_local_date(date_from)
+        end = _parse_local_date(date_to)
+        if end is not None:
+            end = end + timedelta(days=1)  # inclusive of the whole end day
+        return (
+            start.astimezone(timezone.utc) if start else None,
+            end.astimezone(timezone.utc) if end else None,
+        )
+
     if key == "all":
         return None, None
     if key == "today":
-        start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = now_local.replace(**midnight)
     elif key == "yesterday":
-        start = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=1)
-        return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+        start = (now_local - timedelta(days=1)).replace(**midnight)
+        return start.astimezone(timezone.utc), (start + timedelta(days=1)).astimezone(timezone.utc)
+    elif key == "wtd":
+        start = (now_local - timedelta(days=now_local.weekday())).replace(**midnight)
     elif key == "mtd":
-        start = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start = now_local.replace(day=1, **midnight)
+    elif key == "ytd":
+        start = now_local.replace(month=1, day=1, **midnight)
     elif key.endswith("d") and key[:-1].isdigit():
         start = now_local - timedelta(days=int(key[:-1]))
+    elif key.endswith("m") and key[:-1].isdigit():
+        start = now_local - timedelta(days=int(key[:-1]) * 30)
+    elif key.endswith("y") and key[:-1].isdigit():
+        start = now_local - timedelta(days=int(key[:-1]) * 365)
     else:
         return None, None
     return start.astimezone(timezone.utc), None
 
 
+def _parse_local_date(value: str | None) -> datetime | None:
+    """``YYYY-MM-DD`` at local midnight."""
+    if not value:
+        return None
+    try:
+        naive = datetime.strptime(value.strip()[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+    return naive.replace(tzinfo=settings.tz)
+
+
 # ------------------------------------------------------------------ top level
-async def build_overview(session: AsyncSession, range_key: str = "all") -> dict:
-    start, end = range_bounds(range_key)
+async def build_overview(
+    session: AsyncSession, range_key: str = "all", *, date_from: str | None = None, date_to: str | None = None
+) -> dict:
+    start, end = range_bounds(range_key, date_from=date_from, date_to=date_to)
     rows = await load_rows(session, start=start, end=end)
     summary = summarize(rows)
     summary["range"] = range_key
@@ -326,8 +434,10 @@ async def build_performance(session: AsyncSession, granularity: str, limit: int 
     return list(reversed(buckets))
 
 
-async def build_analytics(session: AsyncSession, range_key: str = "all") -> dict:
-    start, end = range_bounds(range_key)
+async def build_analytics(
+    session: AsyncSession, range_key: str = "all", *, date_from: str | None = None, date_to: str | None = None
+) -> dict:
+    start, end = range_bounds(range_key, date_from=date_from, date_to=date_to)
     rows = await load_rows(session, start=start, end=end)
     payload = analytics(rows)
     payload["equity_curve"] = equity_curve(rows)
