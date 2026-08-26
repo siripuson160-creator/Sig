@@ -305,6 +305,63 @@ td.right, th.right { text-align: right; }
   border-radius: var(--radius-sm); padding: 12px 14px; font-size: 13px; color: var(--text-dim);
 }
 .notice.warn { background: var(--yellow-dim); border-color: rgba(224, 169, 74, 0.25); }
+.notice.bad { background: var(--red-dim); border-color: rgba(242, 96, 111, 0.25); color: var(--text); }
+.notice.ok { background: var(--green-dim); border-color: rgba(53, 196, 139, 0.25); }
+.notice.info { background: var(--blue-dim); border-color: rgba(91, 157, 255, 0.25); }
+
+/* ------------------------------------------------------------ setup wizard */
+/* One column, comfortably readable: this is a form somebody fills in once,
+   often on a phone next to the terminal they just ran the installer in. */
+.setup-shell { max-width: 640px; }
+.setup-panel { margin-top: 16px; }
+.setup-lede { color: var(--text-dim); font-size: 14px; margin: 0 0 14px; }
+.setup-lede .th { color: var(--text-faint); font-size: 13px; }
+
+/* These notices hold headings, code blocks and line breaks, unlike the
+   single-line ones elsewhere, so they stack instead of sitting in a row. */
+.setup-shell .notice { display: block; margin-bottom: 14px; line-height: 1.6; }
+.setup-shell .notice:last-child { margin-bottom: 0; }
+.setup-shell .notice strong { color: var(--text); }
+
+.steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 16px 0 0; margin: 0; }
+.step {
+  font-size: 12px; color: var(--text-faint); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px 11px;
+}
+.step.active { color: var(--text); border-color: var(--blue); background: var(--blue-dim); }
+.step.done { color: var(--green); border-color: rgba(53, 196, 139, 0.3); }
+.step.done::before { content: "✓ "; }
+
+.field { display: block; margin-bottom: 16px; }
+.field[hidden] { display: none; }
+.field-label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+.field .input, .field .select { width: 100%; }
+.field-hint { display: block; font-size: 12px; color: var(--text-faint); margin-top: 6px; line-height: 1.5; }
+
+.setup-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+
+.code-block {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 12px; font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+  overflow-x: auto; margin: 10px 0 0; white-space: pre;
+}
+
+.group-list { max-height: 340px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.group-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: 0; border-bottom: 1px solid var(--border-soft);
+  padding: 10px 12px; color: var(--text); font: inherit; cursor: pointer;
+}
+.group-row:last-child { border-bottom: 0; }
+.group-row:hover { background: var(--surface-2); }
+.group-row.selected { background: var(--blue-dim); box-shadow: inset 3px 0 0 var(--blue); }
+.group-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-id { font-size: 11px; color: var(--text-faint); }
+
+.summary-row { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border-soft); font-size: 14px; }
+.summary-row:last-of-type { border-bottom: 0; }
+.summary-label { color: var(--text-faint); min-width: 150px; }
+.summary-value { color: var(--text); word-break: break-all; }
 
 .pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--border-soft); font-size: 13px; }
 

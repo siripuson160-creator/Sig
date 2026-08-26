@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="robots" content="noindex" />
+  <title>Setup · Signal Bridge</title>
+  <link rel="stylesheet" href="/static/css/app.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%235b9dff'/><path d='M16 8v16M8 16h16' stroke='%230c1017' stroke-width='3' stroke-linecap='round'/></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <h1>Signal Bridge · Setup</h1>
+        <span class="sub">ตั้งค่าครั้งแรก · first-time setup</span>
+      </div>
+      <span class="status-pill" id="conn"><span class="dot"></span><span id="conn-text">checking…</span></span>
+    </div>
+  </header>
+
+  <main class="shell setup-shell">
+    <ol class="steps" id="steps"></ol>
+    <div id="view"></div>
+  </main>
+
+  <script type="module" src="/static/js/setup.js"></script>
+</body>
+</html>

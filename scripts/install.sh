@@ -40,6 +40,9 @@ SERVICE_NAME="telegram-line-forwarder"
 
 SKIP_SETUP=false
 SERVICE_ONLY=false
+# Setup happens in the browser by default; --cli-setup keeps the old terminal
+# wizard, which is the only option when the server has no reachable port.
+CLI_SETUP=false
 GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 DOMAIN="${DOMAIN:-}"
 LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-}"
@@ -65,14 +68,19 @@ Usage: sudo bash scripts/install.sh [options]
   --domain NAME       serve over HTTPS at this domain (nginx + Let's Encrypt)
   --email ADDRESS     contact address for the certificate
   --no-https          skip nginx entirely; serve on http://IP:PORT
-  --skip-setup        do not run the setup wizard (code and deps only)
+  --cli-setup         ask the setup questions here instead of in the browser
+  --skip-setup        do not configure anything (code and deps only)
   --service-only      only (re)install the systemd service
   -h, --help          show this help
+
+By default this installs everything, starts the service and prints a link.
+You finish the setup in a browser: Telegram, LINE, prices, all of it.
 
 Examples:
   sudo bash scripts/install.sh
   sudo bash scripts/install.sh --domain signals.example.com --email me@example.com
   sudo bash scripts/install.sh --token github_pat_xxx       # private repository
+  sudo bash scripts/install.sh --cli-setup                  # configure in the terminal
 EOF
 }
 
@@ -85,6 +93,7 @@ while [[ $# -gt 0 ]]; do
         --domain)       DOMAIN="$2"; shift 2 ;;
         --email)        LETSENCRYPT_EMAIL="$2"; shift 2 ;;
         --no-https)     NO_HTTPS=true; shift ;;
+        --cli-setup)    CLI_SETUP=true; shift ;;
         --skip-setup)   SKIP_SETUP=true; shift ;;
         --service-only) SERVICE_ONLY=true; shift ;;
         -h|--help)      usage; exit 0 ;;
@@ -249,26 +258,84 @@ install_deps() {
 }
 
 # ---------------------------------------------------------------- wizard
+#: Set by prepare_web_setup when the browser wizard is the one that will run.
+SETUP_TOKEN=""
+
+# systemd needs the EnvironmentFile to exist, and the service needs to be able
+# to write it when the browser wizard finishes. An empty, service-owned file
+# satisfies both, and reads as "not configured" so /setup opens.
+ensure_env_file() {
+    if [[ ! -f "$INSTALL_DIR/.env" ]]; then
+        install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 600 /dev/null "$INSTALL_DIR/.env"
+    fi
+    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/.env"
+    chmod 600 "$INSTALL_DIR/.env"
+}
+
+is_configured() {
+    # Mirrors app/setup_state.py: all three present and non-empty.
+    local key
+    for key in TELEGRAM_API_ID TELEGRAM_API_HASH TELEGRAM_SOURCE_CHAT_ID; do
+        grep -qE "^${key}=.+" "$INSTALL_DIR/.env" 2>/dev/null || return 1
+    done
+    return 0
+}
+
+prepare_web_setup() {
+    # The token is what makes the setup page safe to expose: without it the
+    # page refuses every request, so a stranger who finds the port cannot
+    # point this install at their own Telegram account.
+    install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 700 "$INSTALL_DIR/data"
+    SETUP_TOKEN="$(as_service_user env "SIGNAL_DIR=$INSTALL_DIR" \
+        "$INSTALL_DIR/.venv/bin/python" - <<'PY'
+import os, secrets
+# Absolute, because this runs from whichever directory the installer was
+# started in, not from the install directory.
+root = os.environ["SIGNAL_DIR"]
+path = os.path.join(root, "data", "setup-token")
+os.makedirs(os.path.join(root, "data"), exist_ok=True)
+if os.path.exists(path):
+    with open(path) as handle:
+        existing = handle.read().strip()
+    if existing:
+        print(existing)
+        raise SystemExit
+token = secrets.token_urlsafe(24)
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as handle:
+    handle.write(token + "\n")
+print(token)
+PY
+)" || fail "could not create the setup token"
+    ok "setup link prepared"
+}
+
 run_wizard() {
     step "Configuration"
+    ensure_env_file
+
     if [[ "$SKIP_SETUP" == true ]]; then
         warn "skipped (--skip-setup)"
         return
     fi
-    if [[ "$INTERACTIVE" != true ]]; then
-        warn "no terminal attached, so the wizard cannot ask questions"
-        info "finish the setup by running:"
-        info "  sudo -u $SERVICE_USER $INSTALL_DIR/.venv/bin/python -m app.cli setup"
-        info "  (run it from $INSTALL_DIR)"
+    if is_configured; then
+        ok "already configured — leaving $INSTALL_DIR/.env alone"
         return
     fi
-    if [[ -f "$INSTALL_DIR/.env" ]]; then
-        info "$INSTALL_DIR/.env already exists"
-        read -rp "    Run the setup wizard again? [y/N]: " answer
-        [[ "${answer,,}" == y* ]] || { ok "keeping the existing configuration"; return; }
+
+    if [[ "$CLI_SETUP" == true ]]; then
+        if [[ "$INTERACTIVE" != true ]]; then
+            warn "--cli-setup needs a terminal, and there is none attached"
+            info "finish it later with:"
+            info "  cd $INSTALL_DIR && sudo -u $SERVICE_USER .venv/bin/python -m app.cli setup"
+            return
+        fi
+        ( cd "$INSTALL_DIR" && as_service_user "$INSTALL_DIR/.venv/bin/python" -m app.cli setup ) || \
+            warn "the wizard exited early — you can re-run it any time"
+        return
     fi
-    ( cd "$INSTALL_DIR" && as_service_user "$INSTALL_DIR/.venv/bin/python" -m app.cli setup ) || \
-        warn "the wizard exited early — you can re-run it any time"
+
+    prepare_web_setup
 }
 
 # --------------------------------------------------------------- service
@@ -294,7 +361,9 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_USER}
 WorkingDirectory=${INSTALL_DIR}
-EnvironmentFile=${INSTALL_DIR}/.env
+# The leading '-' lets the service start before the file has any content,
+# which is what makes the browser setup wizard reachable on a fresh install.
+EnvironmentFile=-${INSTALL_DIR}/.env
 ExecStart=${INSTALL_DIR}/.venv/bin/python -m app.main
 Restart=always
 RestartSec=5
@@ -305,7 +374,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=${INSTALL_DIR}/data
+# data/ holds the database and the Telegram session; .env is listed because
+# the setup wizard writes it, and the process then exits so systemd restarts
+# it with the new configuration. The code itself stays read-only.
+ReadWritePaths=${INSTALL_DIR}/data ${INSTALL_DIR}/.env
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
@@ -320,12 +392,8 @@ EOF
     systemctl daemon-reload
     ok "installed /etc/systemd/system/${SERVICE_NAME}.service"
 
-    if [[ ! -f "$INSTALL_DIR/.env" ]]; then
-        warn "no .env yet, so the service was not started"
-        info "run the wizard, then: sudo systemctl enable --now ${SERVICE_NAME}"
-        return
-    fi
-
+    # Started even when unconfigured: that is exactly when the browser setup
+    # page has to be reachable. In that state only the web tier runs.
     systemctl enable --quiet "$SERVICE_NAME"
     systemctl restart "$SERVICE_NAME"
     sleep 3
@@ -394,8 +462,13 @@ setup_https() {
     local port
     port="$(env_value API_PORT)"; port="${port:-8000}"
 
-    # Behind nginx the app should not be reachable on its own port.
+    # Behind nginx the app should not be reachable on its own port. The
+    # service is already running by now, so it has to be restarted for the
+    # new bind address to take effect.
     set_env_value API_HOST 127.0.0.1
+    if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+        systemctl restart "$SERVICE_NAME"
+    fi
     info "bound the app to 127.0.0.1:${port}; only nginx can reach it"
 
     cat > "/etc/nginx/sites-available/${SERVICE_NAME}" <<EOF
@@ -525,6 +598,36 @@ summary() {
         base="https://${DOMAIN}"
     else
         base="http://${ip}:${port}"
+    fi
+
+    # The install is not finished yet: the remaining questions are answered in
+    # the browser, so the link is the only thing that matters on screen.
+    if [[ -n "$SETUP_TOKEN" ]]; then
+        step "Almost done — finish in your browser"
+        echo
+        printf '    %sOpen this link:%s\n\n' "$BOLD" "$RESET"
+        printf '      %s/setup?token=%s\n\n' "$base" "$SETUP_TOKEN"
+        info "It asks for your Telegram API details, sends you a login code,"
+        info "lets you pick the signal group, then LINE and the price source."
+        echo
+        info "เปิดลิงก์ข้างบนในเบราว์เซอร์ แล้วตั้งค่าต่อได้เลย"
+        info "(Telegram → เลือกกลุ่ม → LINE → แหล่งราคา)"
+        echo
+        info "The link works once, and stops working as soon as setup finishes."
+        info "Lost it?  sudo cat ${INSTALL_DIR}/data/setup-token"
+        echo
+        if [[ -z "$DOMAIN" ]]; then
+            warn "This link is plain HTTP, so what you type crosses the network"
+            warn "unencrypted — including your Telegram login code. On an untrusted"
+            warn "network, tunnel it over SSH instead and use http://localhost:${port}/setup :"
+            info "  ssh -L ${port}:localhost:${port} root@${ip}"
+            echo
+            info "Or install with a domain to get HTTPS:"
+            info "  sudo bash ${INSTALL_DIR}/scripts/install.sh --domain your.domain --email you@example.com"
+        fi
+        echo
+        info "Logs: sudo journalctl -u ${SERVICE_NAME} -f"
+        return
     fi
 
     step "Done"

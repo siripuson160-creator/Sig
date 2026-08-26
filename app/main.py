@@ -81,8 +81,32 @@ async def _run_listener() -> None:
         raise
 
 
+def _setup_mode_components(components: set[str]) -> set[str]:
+    """On an unconfigured install, run the web tier and nothing else.
+
+    The listener cannot connect without API credentials and the LINE worker has
+    no destination, so starting them would only crash-loop the unit. Serving
+    just the API keeps `/setup` reachable, which is exactly what an operator
+    needs at that moment.
+    """
+    from app import setup_state
+
+    if setup_state.is_configured():
+        return components
+
+    token = setup_state.ensure_token()
+    log.warning("not configured yet — starting in setup mode, only the web tier is running")
+    log.warning("open http://<this-server>:%s/setup?token=%s", settings.api_port, token)
+    log.warning("that token also lives in %s", setup_state.TOKEN_PATH)
+    return components & {"api"}
+
+
 async def run(components: set[str]) -> int:
     configure_logging()
+    components = _setup_mode_components(components)
+    if not components:
+        log.error("nothing to run: this install is not configured and the api component is disabled")
+        return 2
     await init_db()
 
     tasks: dict[str, asyncio.Task] = {}

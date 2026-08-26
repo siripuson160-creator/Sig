@@ -72,21 +72,47 @@ resets the remote to the plain URL, so the token is never written to
 `.git/config`. Making the repository public removes the need for a token.
 
 It installs what is missing, puts the code in `/opt/signal` under a dedicated
-`signal` user, then asks you a short list of questions:
+`signal` user, starts the service, and prints a link:
 
 ```
-1. Telegram      API ID and API hash from https://my.telegram.org
-2. LINE          channel access token and group id
-3. Database      SQLite (one file) or PostgreSQL
-4. Price data    none / CSV files / Twelve Data
-5. Scoring       what counts as a win in the awkward cases
-6. Dashboard     port, timezone, and an admin key it generates for you
+==> Almost done — finish in your browser
+
+    Open this link:
+
+      http://203.0.113.10:8000/setup?token=KvG85TyjZolxZEN6lVbJF993PYBRbyB5
+```
+
+Open it and answer five screens — Telegram, the login code, which group,
+LINE, then prices and scoring. When you press **Save and start**, the settings
+file is written, the setup link stops working, and the service restarts with
+everything running. Nothing else to type in the terminal.
+
+Prefer the terminal? `--cli-setup` asks the same questions there.
+
+### About the setup link
+
+The token in that link is what makes the page safe to expose. Without it every
+setup request is refused, so someone who finds the port cannot point your
+install at their own Telegram account. It is written to
+`/opt/signal/data/setup-token` (readable only with shell access), it stops
+working the moment setup finishes, and the wizard refuses to run at all once
+the install is configured.
+
+**Your Telegram login code is not sent to us, or to anyone.** It goes from your
+browser to your own server and straight to Telegram. It is never stored, never
+written to the settings file, and never logged — same as the terminal wizard.
+
+What the link does *not* protect is the network in between: on a bare IP there
+is no HTTPS, so what you type crosses the network in the clear. The page says
+so. Either install with `--domain` for a real certificate, or tunnel it:
+
+```bash
+ssh -L 8000:localhost:8000 root@your-server
+# then open http://localhost:8000/setup
 ```
 
 Then it:
 
-- signs you in to Telegram — **you type the code**, it is never stored
-- lets you pick the source group from a menu
 - installs the systemd service and starts it (so it survives a reboot)
 - sets up nginx and a Let's Encrypt certificate if you gave a domain, and binds
   the app to `127.0.0.1` so it is only reachable through nginx
@@ -139,11 +165,45 @@ curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
 ถ้าเปลี่ยน repo เป็น public ก็ไม่ต้องใช้ token เลย
 
 ตัวติดตั้งจะลงของที่ขาด สร้าง user `signal` วางโค้ดไว้ที่ `/opt/signal`
-แล้วถามคำถามสั้นๆ (Telegram, LINE, ฐานข้อมูล, ราคา, กฎการนับผล, พอร์ต)
-จากนั้นจะ:
+เริ่ม service ให้ แล้วพิมพ์ลิงก์ออกมา:
 
-- ให้ล็อกอิน Telegram — **คุณกรอก OTP เอง ระบบไม่เก็บไว้**
-- ให้เลือกกลุ่มต้นทางจากเมนู
+```
+==> Almost done — finish in your browser
+
+    Open this link:
+
+      http://203.0.113.10:8000/setup?token=KvG85TyjZolxZEN6lVbJF993PYBRbyB5
+```
+
+เปิดลิงก์นั้นในเบราว์เซอร์ แล้วตอบ 5 หน้า — Telegram, รหัสที่ส่งมา,
+เลือกกลุ่ม, LINE, แล้วก็แหล่งราคากับกฎการนับผล พอกด **Save and start**
+ระบบจะเขียนไฟล์ตั้งค่า ปิดลิงก์ setup ทิ้ง แล้วรีสตาร์ตขึ้นมาทำงานเต็มรูปแบบ
+ไม่ต้องพิมพ์อะไรใน terminal อีก
+
+ถ้าอยากตั้งค่าใน terminal เหมือนเดิม ใช้ `--cli-setup`
+
+**เรื่องลิงก์ setup**
+
+token ในลิงก์คือสิ่งที่ทำให้หน้านี้ปลอดภัย ถ้าไม่มี token ระบบจะปฏิเสธทุกคำขอ
+คนที่บังเอิญเจอพอร์ตนี้จึงเอาไปตั้งค่าเป็นบัญชี Telegram ของตัวเองไม่ได้
+token เก็บอยู่ที่ `/opt/signal/data/setup-token` (อ่านได้เฉพาะคนที่เข้า
+เครื่องได้) และจะใช้ไม่ได้ทันทีที่ตั้งค่าเสร็จ
+
+**รหัส OTP ของ Telegram ไม่ได้ถูกส่งมาให้เราหรือใครทั้งนั้น**
+มันวิ่งจากเบราว์เซอร์ของคุณ → เครื่อง VPS ของคุณเอง → Telegram โดยตรง
+ไม่ถูกเก็บ ไม่ถูกเขียนลงไฟล์ตั้งค่า และไม่ถูกบันทึกใน log
+
+สิ่งที่ token ป้องกันไม่ได้คือเส้นทางเน็ตเวิร์ก: ถ้าเข้าด้วย IP เปล่าๆ
+จะไม่มี HTTPS สิ่งที่พิมพ์จะวิ่งแบบไม่เข้ารหัส (หน้าเว็บจะเตือนไว้)
+ให้ติดตั้งด้วย `--domain` เพื่อให้ได้ HTTPS จริง หรือใช้ SSH tunnel:
+
+```bash
+ssh -L 8000:localhost:8000 root@your-server
+# แล้วเปิด http://localhost:8000/setup
+```
+
+จากนั้นตัวติดตั้งจะ:
+
 - ติดตั้ง service แล้วเริ่มรัน (รีบูตแล้วขึ้นเองอัตโนมัติ)
 - ถ้าใส่โดเมน จะติดตั้ง nginx + ใบรับรอง Let's Encrypt ให้ และผูกแอปไว้ที่
   `127.0.0.1` เพื่อให้เข้าได้ทาง nginx ทางเดียว
