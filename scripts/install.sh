@@ -226,9 +226,23 @@ fetch_code() {
             info "Or make the repository public, and no token is needed." >&2
             fail "cannot clone a private repository without a token"
         fi
-        git clone --quiet --branch "$BRANCH" "$(auth_url)" "$INSTALL_DIR"
+        # Clone via a temp directory rather than straight into $INSTALL_DIR:
+        # the service account's home is $INSTALL_DIR, so adduser has usually
+        # created it already (with skel dotfiles in it), and git refuses to
+        # clone into a directory that is not empty. Copying the clone in also
+        # makes a re-run after a failed install work, instead of demanding the
+        # directory be deleted by hand.
+        local tmp
+        tmp="$(mktemp -d)"
+        # shellcheck disable=SC2064  # $tmp must expand now, not at trap time.
+        trap "rm -rf '$tmp'" RETURN
+        git clone --quiet --branch "$BRANCH" "$(auth_url)" "$tmp/repo"
         # Never leave the token in .git/config.
-        git -c "safe.directory=$INSTALL_DIR" -C "$INSTALL_DIR" remote set-url origin "$REPO_URL"
+        git -c "safe.directory=$tmp/repo" -C "$tmp/repo" remote set-url origin "$REPO_URL"
+        mkdir -p "$INSTALL_DIR"
+        # Dotfiles included, and anything already there that is not part of the
+        # repository — .env, data/, .venv — is left alone.
+        cp -a "$tmp/repo/." "$INSTALL_DIR/"
         ok "cloned into $INSTALL_DIR"
     fi
 
