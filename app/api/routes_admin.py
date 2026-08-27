@@ -442,6 +442,10 @@ async def read_settings(identity: AdminDep) -> dict:
         "line_enabled": settings.line_enabled,
         "add_edited_prefix": settings.add_edited_prefix,
         "line_edit_prefix": settings.line_edit_prefix,
+        # Only for labelling the LINE preview; never the token itself.
+        "line_destination": settings.line_destination,
+        "pip_size": settings.pip_size,
+        "result_source": settings.result_source,
         "line_max_attempts": settings.line_max_attempts,
         "price_data_provider": settings.price_data_provider,
         "price_symbol": settings.price_symbol,
