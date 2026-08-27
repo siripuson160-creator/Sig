@@ -17,6 +17,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AmbiguityRule = Literal["SL_FIRST", "TP_FIRST", "AMBIGUOUS"]
 ResultMode = Literal["BEST_TP", "FIRST_TOUCH"]
+#: Where a published verdict comes from.
+#:   price   - measured against price history (independently verified)
+#:   message - what the source announced about its own trade (self-reported)
+ResultSource = Literal["price", "message"]
 
 
 class Settings(BaseSettings):
@@ -87,6 +91,12 @@ class Settings(BaseSettings):
     # --------------------------------------------------------------- evaluation
     ambiguity_rule: AmbiguityRule = "SL_FIRST"
     result_mode: ResultMode = "BEST_TP"
+    # "price" judges every signal against price history. "message" instead takes
+    # the source at its word when it reports its own trade ("90 Pips!", "SL
+    # hit"), which needs no price feed and matches what members saw in the
+    # group — but is only as accurate as the source is honest. Either way the
+    # signal records which was used, and the dashboard says so.
+    result_source: ResultSource = "price"
     # A signal that never fills or resolves is closed after this many hours.
     signal_expiry_hours: int = 72
     # How long we wait for price to touch entry before abandoning the signal.
@@ -109,6 +119,11 @@ class Settings(BaseSettings):
     admin_session_hours: int = 12
     cors_origins: str = "*"
     public_dashboard_enabled: bool = True
+    # The archive of what was pushed to LINE, on the member dashboard. Off by
+    # default: the signal text is the thing members pay for, and the public
+    # dashboard is readable by anyone who has the URL. The admin page always
+    # shows it regardless.
+    public_broadcast_enabled: bool = False
     # How often the dashboard refreshes itself (section 47).
     dashboard_refresh_seconds: int = 10
 

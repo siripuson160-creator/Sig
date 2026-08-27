@@ -80,11 +80,55 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+def _add_missing_columns(conn) -> list[str]:
+    """Add columns the models have gained since the database was created.
+
+    ``create_all`` only creates missing *tables*, so a release that adds a
+    column would otherwise start against an old database and fail on the first
+    query with "no such column". Both SQLite and PostgreSQL support
+    ``ALTER TABLE ... ADD COLUMN``, so the additive case is handled here and
+    an upgrade needs no manual step.
+
+    Deliberately additive only: nothing is dropped, renamed or retyped, and a
+    column that is NOT NULL without a default is skipped rather than guessed
+    at, because there is no safe value to backfill an existing row with. Those
+    stay a hand-written migration — see *Schema changes* in the operations
+    guide.
+    """
+    from sqlalchemy import inspect
+
+    inspector = inspect(conn)
+    existing_tables = set(inspector.get_table_names())
+    added: list[str] = []
+
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue  # create_all just made it, with every column
+        present = {column["name"] for column in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in present:
+                continue
+            if not column.nullable and column.default is None and column.server_default is None:
+                log.warning(
+                    "column %s.%s is missing and cannot be added automatically (NOT NULL, no default)",
+                    table.name,
+                    column.name,
+                )
+                continue
+            ddl = column.type.compile(dialect=conn.dialect)
+            conn.exec_driver_sql(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {ddl}')
+            added.append(f"{table.name}.{column.name}")
+    return added
+
+
 async def init_db() -> None:
-    """Create tables if they do not exist."""
+    """Create tables if they do not exist, and add any newly added columns."""
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        added = await conn.run_sync(_add_missing_columns)
+    if added:
+        log.info("database upgraded: added %s", ", ".join(added))
     log.info("database ready (%s)", _safe_url(settings.database_url))
 
 

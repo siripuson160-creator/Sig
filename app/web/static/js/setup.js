@@ -42,6 +42,7 @@ const state = {
   lineVerified: false,
   lineEnabled: true,
   dryRun: false,
+  resultSource: 'price',
   provider: 'twelvedata',
   priceKey: '',
   symbol: 'XAUUSD',
@@ -415,6 +416,32 @@ function screenPrices() {
   ]);
   ambiguity.value = state.ambiguity;
 
+  const resultSource = el('select', { class: 'select' }, [
+    el('option', { value: 'price', text: 'Price history — checked against the market' }),
+    el('option', { value: 'message', text: "The provider's own reports — self-reported" }),
+  ]);
+  resultSource.value = state.resultSource;
+  const sourceNote = el('div');
+
+  function refreshSource() {
+    state.resultSource = resultSource.value;
+    clear(sourceNote);
+    if (resultSource.value === 'message') {
+      sourceNote.append(
+        el('div', { class: 'notice warn' }, [
+          el('strong', { text: 'Self-reported results. ' }),
+          'Outcomes come from what the provider posts about its own trades ("90 Pips! Can secure as TP2"). ' +
+            'No price feed is needed and the numbers match what members saw in the group — but nothing is ' +
+            'verified, so the statistics are only as honest as the source. The dashboard says so on every page.',
+        ]),
+      );
+    }
+    // Prices still matter in message mode for the chart, but nothing depends
+    // on them, so the API-key requirement is relaxed.
+    keyField.hidden = provider.value !== 'twelvedata';
+  }
+  resultSource.onchange = refreshSource;
+
   const tz = input('tz', { value: state.timezone });
   const port = input('port', { value: String(state.apiPort), inputmode: 'numeric' });
   const password = input('admin-pw', { value: state.adminPassword, placeholder: 'leave blank and one is generated' });
@@ -428,7 +455,8 @@ function screenPrices() {
     state.timezone = tz.value.trim() || 'Asia/Bangkok';
     state.apiPort = Number(port.value) || 8000;
     state.adminPassword = password.value.trim();
-    if (state.provider === 'twelvedata' && !state.priceKey) {
+    state.resultSource = resultSource.value;
+    if (state.resultSource === 'price' && state.provider === 'twelvedata' && !state.priceKey) {
       throw new Error('Twelve Data needs an API key. Take the free one, or choose a different provider.');
     }
     go('done');
@@ -441,6 +469,9 @@ function screenPrices() {
       el('span', { class: 'th', text: 'ผลลัพธ์คำนวณจากราคาจริง ถ้าไม่มีแหล่งราคา ระบบจะบันทึกสัญญาณไว้แต่ไม่ตัดสินผล' }),
     ]),
     field('Symbol', symbol),
+    field('How results are decided', resultSource,
+      'Price history is an independent check. The provider\u2019s own reports need no price feed and match what members saw, but are not verified.'),
+    sourceNote,
     field('Price source', provider),
     keyField,
     warn,
@@ -451,7 +482,7 @@ function screenPrices() {
     box,
     actions([next]),
   ]);
-  queueMicrotask(refresh);
+  queueMicrotask(() => { refresh(); refreshSource(); });
   return screen;
 }
 
@@ -473,6 +504,7 @@ function screenDone() {
       line_destination: state.lineDestination,
       line_enabled: state.lineEnabled,
       dry_run: state.dryRun,
+      result_source: state.resultSource,
       price_provider: state.provider,
       price_api_key: state.priceKey,
       price_symbol: state.symbol,
@@ -490,6 +522,7 @@ function screenDone() {
     summaryRow('Telegram account', state.account),
     summaryRow('Source group', `${state.chatName} (${state.chatId})`),
     summaryRow('LINE', state.dryRun ? 'test mode — nothing is posted yet' : `${state.lineDestination}`),
+    summaryRow('Results decided by', state.resultSource === 'message' ? 'the provider\u2019s own reports (self-reported)' : 'price history (verified)'),
     summaryRow('Prices', state.provider),
     summaryRow('Symbol', state.symbol),
     summaryRow('Same-candle rule', state.ambiguity),

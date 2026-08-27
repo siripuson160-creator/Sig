@@ -162,6 +162,8 @@ async function renderOverview() {
   ]);
 
   const root = clear(view);
+  const provenance = await selfReportedBanner();
+  if (provenance) root.append(provenance);
 
   root.append(
     el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:16px' }, [
@@ -287,6 +289,30 @@ const DISCLAIMER =
   'Actual trading results may differ due to spread, slippage, commissions, execution speed, liquidity and ' +
   'other market conditions. Displayed performance is based on the stated calculation methodology and is ' +
   'not a guarantee of future profitability.';
+
+/* Self-reported numbers must announce themselves.
+ *
+ * When results come from the provider's own messages rather than from price
+ * history, that changes what the figures below mean, so it is said on the page
+ * a member lands on — not buried in the methodology tab. Cached because the
+ * setting cannot change without a restart. */
+let _methodologyCache = null;
+
+async function selfReportedBanner() {
+  try {
+    _methodologyCache = _methodologyCache || (await api('/api/public/methodology'));
+  } catch (_) {
+    return null; // never block the dashboard on this
+  }
+  if (_methodologyCache.result_source !== 'message') return null;
+
+  return el('div', { class: 'notice warn', style: 'margin: 16px 0' }, [
+    el('strong', { text: 'These results are reported by the signal provider. ' }),
+    'Each outcome below is taken from what the provider announced about its own trade — a message ' +
+      'such as "90 Pips! Can secure as TP2" — and has not been checked against price history. ' +
+      'They reflect what was posted in the group, not an independent measurement.',
+  ]);
+}
 
 function disclaimerPanel() {
   return el('div', { class: 'panel', style: 'margin-top:24px' }, [
@@ -815,6 +841,7 @@ async function renderMethodology() {
           kv('Unit', 'Points'),
           kv('Point size', String(data.point_size)),
           kv('Timezone', data.timezone),
+          kv('Result source', data.result_source === 'message' ? 'The provider’s own reports' : 'Price history'),
           kv('Price source', data.price_source),
           kv('Price timeframe', data.price_timeframe),
           kv('Same-candle rule', data.ambiguity_rule),

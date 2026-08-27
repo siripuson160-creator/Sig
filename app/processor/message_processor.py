@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.models import DeliveryStatus, EventType, Signal, TelegramMessage, utcnow
 from app.processor.hashing import content_hash
-from app.signals.service import upsert_signal_from_message
+from app.signals.service import apply_claimed_outcome, upsert_signal_from_message
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +61,7 @@ async def ingest_message(
     sender_name: str | None = None,
     has_media: bool = False,
     is_edit: bool = False,
+    reply_to_message_id: int | None = None,
 ) -> IngestResult:
     """Store a new version of a Telegram message and queue it for LINE."""
     digest = content_hash(chat_id, message_id, content)
@@ -100,6 +101,7 @@ async def ingest_message(
         status=DeliveryStatus.PENDING if settings.line_delivery_enabled else DeliveryStatus.SKIPPED,
         sender_name=sender_name,
         has_media=has_media,
+        reply_to_message_id=reply_to_message_id,
     )
     try:
         # A savepoint, so losing a race here cannot roll back work the caller
@@ -114,6 +116,10 @@ async def ingest_message(
         return IngestResult(existing, None, created=False, reason="duplicate_race")
 
     signal = await upsert_signal_from_message(session, row)
+    if signal is None:
+        # Not a signal itself. It may still be the source reporting on one:
+        # "90 Pips! Can secure as TP2", posted as a reply to the original.
+        signal = await apply_claimed_outcome(session, row)
     return IngestResult(row, signal, created=True, reason="stored")
 
 

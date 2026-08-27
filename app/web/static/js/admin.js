@@ -6,6 +6,7 @@ import {
   api,
   clear,
   dateTime,
+  debounce,
   directionChip,
   el,
   emptyState,
@@ -21,7 +22,33 @@ const TOKEN_STORE = 'signal-admin-token';
 const view = document.getElementById('view');
 const signOutButton = document.getElementById('sign-out');
 
-const state = { tab: 'overview', messageFilter: '', auditFilter: '' };
+const state = {
+  tab: 'overview',
+  messageFilter: '',
+  auditFilter: '',
+  broadcastFilter: '',
+  broadcastSearch: '',
+  broadcastOffset: 0,
+};
+
+/** Previous / next controls for an endpoint that returns {total, limit, offset}. */
+function pager(data, onChange, stateKey) {
+  const limit = data.limit || data.items.length || 1;
+  const offset = data.offset || 0;
+  const last = Math.max(0, Math.ceil(data.total / limit) - 1);
+  const page = Math.floor(offset / limit);
+  if (data.total <= limit) return null;
+
+  const go = (next) => {
+    state[stateKey] = Math.max(0, next) * limit;
+    onChange();
+  };
+  return el('div', { class: 'pager' }, [
+    el('span', { class: 'faint', text: `${offset + 1}–${Math.min(offset + limit, data.total)} of ${data.total}` }),
+    el('button', { class: 'btn', text: 'Previous', disabled: page <= 0, onclick: () => go(page - 1) }),
+    el('button', { class: 'btn', text: 'Next', disabled: page >= last, onclick: () => go(page + 1) }),
+  ]);
+}
 
 /* ------------------------------------------------------------------- auth */
 function token() {
@@ -87,6 +114,7 @@ function renderLogin(message = '') {
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'messages', label: 'Messages' },
+  { id: 'broadcast', label: 'Sent to LINE' },
   { id: 'signals', label: 'Signals' },
   { id: 'edits', label: 'Edit history' },
   { id: 'statistics', label: 'Statistics' },
@@ -209,6 +237,82 @@ async function renderOverview() {
         ]),
       ]),
     ])
+  );
+}
+
+/* -------------------------------------------------------------- broadcast */
+/* The archive of what the LINE group actually received.
+ *
+ * Different from the Messages tab, which is the delivery queue: this shows the
+ * exact text that was pushed — the EDITED prefix included — because that is
+ * what a member saw, and it is the record to check a complaint against. */
+async function renderBroadcast() {
+  const query = new URLSearchParams({ limit: '100', offset: String(state.broadcastOffset || 0) });
+  if (state.broadcastFilter) query.set('status', state.broadcastFilter);
+  if (state.broadcastSearch) query.set('q', state.broadcastSearch);
+  const data = await adminApi(`/api/admin/broadcast?${query}`);
+
+  const search = el('input', {
+    class: 'input',
+    placeholder: 'Search text or message id…',
+    value: state.broadcastSearch || '',
+    oninput: debounce((event) => {
+      state.broadcastSearch = event.target.value.trim();
+      state.broadcastOffset = 0;
+      renderTab();
+    }, 350),
+  });
+
+  const filter = el(
+    'select',
+    {
+      class: 'select',
+      onchange: (event) => {
+        state.broadcastFilter = event.target.value;
+        state.broadcastOffset = 0;
+        renderTab();
+      },
+    },
+    [
+      el('option', { value: '', text: 'All' }),
+      ...['SENT', 'PENDING', 'FAILED', 'SKIPPED'].map((status) =>
+        el('option', { value: status, text: status, selected: state.broadcastFilter === status })
+      ),
+    ]
+  );
+
+  const entries = data.items.map((item) => {
+    const chip =
+      item.status === 'SENT' ? 'win' : item.status === 'FAILED' ? 'loss' : item.status === 'PENDING' ? 'open' : 'neutral';
+    return el('article', { class: 'broadcast-entry' }, [
+      el('header', { class: 'broadcast-head' }, [
+        el('span', { class: 'small faint num', text: dateTime(item.posted_at || item.received_at) }),
+        item.is_edit ? el('span', { class: 'chip open', text: 'EDITED' }) : null,
+        item.has_media ? el('span', { class: 'chip neutral', text: 'media' }) : null,
+        el('span', { class: 'chip ' + chip, text: item.status }),
+        el('span', { class: 'small faint num spacer', text: `#${item.message_id}·v${item.version}` }),
+      ]),
+      el('pre', { class: 'broadcast-text', text: item.line_text || '(empty)' }),
+      el('footer', { class: 'broadcast-foot small faint' }, [
+        `${item.characters} characters`,
+        item.sent_at ? ` · delivered ${dateTime(item.sent_at, { withDate: false })}` : '',
+        item.line_message_id ? ` · LINE id ${item.line_message_id}` : '',
+        item.last_error ? el('span', { class: 'neg', text: ` · ${item.last_error}` }) : null,
+      ]),
+    ]);
+  });
+
+  renderShell(
+    panel(
+      `Sent to LINE · ${data.total} message${data.total === 1 ? '' : 's'}`,
+      [
+        data.items.length
+          ? el('div', { class: 'broadcast-list' }, entries)
+          : emptyState('Nothing matches that filter.'),
+        pager(data, () => renderTab(), 'broadcastOffset'),
+      ],
+      el('div', { class: 'row', style: 'margin-left:auto;gap:8px' }, [search, filter])
+    )
   );
 }
 
@@ -683,6 +787,7 @@ function toast(message, ok) {
 const RENDERERS = {
   overview: renderOverview,
   messages: renderMessages,
+  broadcast: renderBroadcast,
   signals: renderSignals,
   edits: renderEdits,
   statistics: renderStatistics,

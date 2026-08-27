@@ -165,6 +165,10 @@ class TelegramMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     event_type: Mapped[EventType] = mapped_column(EventTypeCol, nullable=False)
+    # The message this one replies to, when it is a reply. Follow-ups like
+    # "90 Pips! Can secure as TP2" are posted as replies to the signal, and
+    # this is the only reliable link back to it.
+    reply_to_message_id: Mapped[int | None] = mapped_column(BigInteger)
 
     # Telegram timestamps.
     created_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
@@ -222,6 +226,12 @@ class Signal(Base):
     profit_points: Mapped[float | None] = mapped_column(Float)
     loss_points: Mapped[float | None] = mapped_column(Float)
     price_source: Mapped[str | None] = mapped_column(String(32))
+    # How this verdict was reached, so a reader is never left guessing whether
+    # a number was measured or merely repeated:
+    #   PRICE   - worked out from price history (independently verified)
+    #   MESSAGE - what the source itself announced ("90 Pips!"); self-reported
+    #   MANUAL  - set by an admin, with a reason in the audit log
+    result_source: Mapped[str | None] = mapped_column(String(16))
 
     # Evaluation bookkeeping.
     entry_filled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

@@ -221,6 +221,12 @@ POINT_SIZE={get('POINT_SIZE', '1.0')}
 PIP_SIZE={get('PIP_SIZE', '0.1')}
 
 # --------------------------------------------------------- evaluation
+# Where a published result comes from:
+#   price   = replay each signal against real price history (verified)
+#   message = take the provider at its word ("90 Pips! Can secure as TP2"),
+#             which needs no price feed but is only as honest as the source.
+# The dashboard states which is in use, either way.
+RESULT_SOURCE={get('RESULT_SOURCE', 'price')}
 # SL_FIRST (conservative) | TP_FIRST | AMBIGUOUS
 AMBIGUITY_RULE={get('AMBIGUITY_RULE', 'SL_FIRST')}
 # BEST_TP | FIRST_TOUCH
@@ -240,6 +246,10 @@ API_PORT={get('API_PORT', '8000')}
 ADMIN_PASSWORD={get('ADMIN_PASSWORD', '')}
 ADMIN_SESSION_HOURS={get('ADMIN_SESSION_HOURS', '12')}
 CORS_ORIGINS={get('CORS_ORIGINS', '*')}
+# Show members the archive of everything posted to LINE. Off by default: the
+# signal text is what they pay for, and this dashboard is public. The admin
+# page shows the archive either way.
+PUBLIC_BROADCAST_ENABLED={get('PUBLIC_BROADCAST_ENABLED', 'false')}
 DASHBOARD_REFRESH_SECONDS={get('DASHBOARD_REFRESH_SECONDS', '10')}
 
 # ------------------------------------------------------------ logging
