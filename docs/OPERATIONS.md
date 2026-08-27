@@ -246,6 +246,49 @@ The session was revoked or expired. Run `python -m app.cli login` again as the
 `signal` user, then restart the service. Messages posted while the process was
 down are replayed on reconnect (`catch_up=True`) and duplicates are dropped.
 
+### Where results come from — RESULT_SOURCE
+
+Two ways to decide whether a signal won:
+
+| `RESULT_SOURCE` | How a verdict is reached | Needs a price feed |
+|---|---|---|
+| `price` (default) | Each signal is replayed against price history | Yes |
+| `message` | The provider's own report decides it | No |
+
+In `message` mode, a follow-up the provider posts *as a reply* to its own
+signal is read for an outcome:
+
+```
+90Pips ! Can secure as TP2 now guys.   ->  TP2 hit, +9 points
+SL hit guys, next one soon             ->  loss, entry to stop
++50Pips now, make a good profit.       ->  still running (progress, not a verdict)
+Good Job guys. Now set breakeven       ->  still running
+cancel this one, no trade              ->  CANCELLED, not counted as a loss
+```
+
+**The Telegram reply is the link.** A report that does not reply to the signal
+cannot be attached to a trade and is ignored, because guessing which trade was
+meant would put a number on the wrong signal.
+
+A trade is decided once: a later "SL hit" after a reported TP does not rewrite
+the booked result. Announced pips are converted with `PIP_SIZE`, so "90 Pips"
+becomes 9 points of gold. Where no number is announced, the distance from the
+posted entry to the posted level is used instead.
+
+In `message` mode the result engine does not consult price history at all — it
+reports itself as DEGRADED on the admin overview, which is expected.
+
+**What this costs you.** These figures are *self-reported*. If the provider
+overstates a result, the dashboard repeats it. So the provenance travels with
+the data: every signal records `result_source` (`PRICE` / `MESSAGE` / `MANUAL`),
+the API exposes `verified`, and the member dashboard carries a banner on the
+overview saying the results are the provider's own and unverified. Do not remove
+that banner while running in this mode — it is the difference between reporting
+a claim and passing a claim off as a measurement.
+
+Switching mode needs a restart. Signals already decided keep their verdict and
+their recorded source; only new ones follow the new setting.
+
 ### Targets quoted in pips, and PIP_SIZE
 
 Some desks post the targets as a distance rather than a price:

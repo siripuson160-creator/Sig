@@ -160,6 +160,7 @@ class TelegramListener:
                 sender_name=await _sender_name(event),
                 has_media=has_media,
                 is_edit=is_edit,
+                reply_to_message_id=_reply_to(message),
             )
 
         if result.created:
@@ -259,3 +260,19 @@ class TelegramListener:
         self._stop.set()
         if self.client.is_connected():
             await self.client.disconnect()
+
+
+def _reply_to(message) -> int | None:
+    """The message this one replies to, when it is a reply.
+
+    Telethon exposes it as ``reply_to_msg_id`` on the message, and on a
+    ``reply_to`` header on newer layers; both are checked because the source
+    group's follow-ups ("TP2 hit") are replies, and that link is what attaches
+    them to the right trade.
+    """
+    direct = getattr(message, "reply_to_msg_id", None)
+    if direct:
+        return int(direct)
+    header = getattr(message, "reply_to", None)
+    nested = getattr(header, "reply_to_msg_id", None) if header is not None else None
+    return int(nested) if nested else None

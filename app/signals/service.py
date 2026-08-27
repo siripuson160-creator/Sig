@@ -25,6 +25,8 @@ from app.db.models import (
     TelegramMessage,
     utcnow,
 )
+from app.signals.outcomes import describe as describe_outcome
+from app.signals.outcomes import parse_outcome
 from app.signals.parser import ParsedSignal, parse_signal
 
 log = logging.getLogger(__name__)
@@ -219,3 +221,137 @@ async def reparse_signal(session: AsyncSession, signal: Signal) -> Signal | None
     return signal
 
 
+
+
+# --------------------------------------- results the source announces itself
+async def apply_claimed_outcome(session: AsyncSession, message: TelegramMessage) -> Signal | None:
+    """Update the signal a follow-up message reports on.
+
+    Only runs when ``RESULT_SOURCE=message``. The link is the Telegram reply:
+    "90 Pips! Can secure as TP2" is posted as a reply to the signal, and that
+    is what says which trade it is about. A message that replies to nothing, or
+    to something that is not a tracked signal, is left alone.
+
+    Returns the signal that was updated, or ``None``.
+    """
+    if settings.result_source != "message":
+        return None
+    if not message.reply_to_message_id:
+        return None
+
+    signal = await get_signal_for_message(session, message.chat_id, message.reply_to_message_id)
+    if signal is None:
+        return None
+    if signal.manual_override:
+        log.info("signal %s has a manual override; claim ignored", signal.signal_id)
+        return signal
+
+    outcome = parse_outcome(message.content)
+    if outcome.is_empty:
+        return None
+
+    before = audit.signal_snapshot(signal)
+    changed = _apply_claim(signal, outcome)
+    if not changed:
+        return signal
+
+    signal.result_source = "MESSAGE"
+    signal.updated_at = utcnow()
+    note = describe_outcome(outcome)
+    signal.evaluation_note = f"reported by the source: {note}"
+    log.info("signal %s updated from the source's own report: %s", signal.signal_id, note)
+
+    await audit.record(
+        session,
+        AuditEvent.SIGNAL_RESULT_UPDATED,
+        entity_type="signal",
+        entity_id=signal.signal_id,
+        summary=f"Result taken from the source's message {message.chat_id}/{message.message_id}: {note}",
+        old_value=before,
+        new_value=audit.signal_snapshot(signal),
+        actor="telegram",
+    )
+    return signal
+
+
+def _apply_claim(signal: Signal, outcome) -> bool:
+    """Write a claimed outcome onto the signal. Returns True if anything moved.
+
+    A trade is only decided once: a later "SL hit" after a reported TP does not
+    rewrite the booked result, matching how the price engine treats its own
+    verdicts.
+    """
+    if signal.status in _LOCKED_STATUSES:
+        return False
+
+    claimed = outcome.claimed_points()
+
+    if outcome.cancelled:
+        signal.status = SignalStatus.CANCELLED
+        signal.result = SignalResult.CANCELLED
+        signal.profit_points = None
+        signal.loss_points = None
+        signal.resolved_at = utcnow()
+        return True
+
+    if outcome.sl_hit:
+        signal.status = SignalStatus.SL_HIT
+        signal.result = SignalResult.LOSS
+        # A loss announced as "-30 pips" is used as given; otherwise the
+        # distance from entry to the stop is the honest fallback.
+        loss = abs(claimed) if claimed is not None else _distance(signal.entry, signal.sl)
+        signal.profit_points = 0.0
+        signal.loss_points = loss
+        signal.resolved_at = utcnow()
+        return True
+
+    if outcome.tp_hit:
+        level = {1: signal.tp1, 2: signal.tp2, 3: signal.tp3}.get(outcome.tp_hit)
+        gain = claimed if claimed is not None else _distance(signal.entry, level)
+        if gain is None:
+            return False
+        signal.status = {
+            1: SignalStatus.TP1_HIT,
+            2: SignalStatus.TP2_HIT,
+            3: SignalStatus.TP3_HIT,
+        }.get(outcome.tp_hit, SignalStatus.TP3_HIT)
+        signal.result = SignalResult.WIN if gain > 0 else SignalResult.BREAKEVEN
+        signal.profit_points = max(gain, 0.0)
+        signal.loss_points = 0.0
+        signal.max_tp_hit = max(signal.max_tp_hit, outcome.tp_hit)
+        signal.resolved_at = utcnow()
+        return True
+
+    if outcome.closed:
+        signal.status = SignalStatus.CLOSED
+        if claimed is None:
+            # Closed with no number attached: nothing to publish but the fact.
+            signal.result = SignalResult.PENDING_RESULT
+            signal.resolved_at = utcnow()
+            return True
+        signal.result = (
+            SignalResult.WIN if claimed > 0 else SignalResult.LOSS if claimed < 0 else SignalResult.BREAKEVEN
+        )
+        signal.profit_points = max(claimed, 0.0)
+        signal.loss_points = abs(min(claimed, 0.0))
+        signal.resolved_at = utcnow()
+        return True
+
+    if outcome.breakeven and not outcome.decides_the_trade:
+        # "Set breakeven" on its own protects the trade, it does not end it.
+        # The trade stays open; only the note records that it was secured.
+        return True
+
+    if claimed is not None and signal.status in (SignalStatus.PENDING, SignalStatus.ACTIVE):
+        # "+50 pips now" — progress, not a verdict. Show the trade as running.
+        signal.status = SignalStatus.ACTIVE
+        return True
+
+    return False
+
+
+def _distance(entry: float | None, level: float | None) -> float | None:
+    if entry is None or level is None:
+        return None
+    points = abs(level - entry)
+    return round(points / settings.point_size, 4) if settings.point_size else points

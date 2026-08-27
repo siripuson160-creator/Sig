@@ -221,6 +221,12 @@ POINT_SIZE={get('POINT_SIZE', '1.0')}
 PIP_SIZE={get('PIP_SIZE', '0.1')}
 
 # --------------------------------------------------------- evaluation
+# Where a published result comes from:
+#   price   = replay each signal against real price history (verified)
+#   message = take the provider at its word ("90 Pips! Can secure as TP2"),
+#             which needs no price feed but is only as honest as the source.
+# The dashboard states which is in use, either way.
+RESULT_SOURCE={get('RESULT_SOURCE', 'price')}
 # SL_FIRST (conservative) | TP_FIRST | AMBIGUOUS
 AMBIGUITY_RULE={get('AMBIGUITY_RULE', 'SL_FIRST')}
 # BEST_TP | FIRST_TOUCH

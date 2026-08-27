@@ -333,7 +333,33 @@ class ResultEngine:
     def stop(self) -> None:
         self._stop.set()
 
+    async def _idle(self, reason: str) -> None:
+        """Stay alive with nothing to compute.
+
+        Returning would look like a component exiting, which stops the whole
+        supervisor and would take the listener and the dashboard with it.
+        """
+        while not self._stop.is_set():
+            await audit.heartbeat("results", ComponentStatus.DEGRADED, reason)
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=30)
+            except asyncio.TimeoutError:
+                pass
+        await self.provider.close()
+
     async def run(self) -> None:
+        if settings.result_source == "message":
+            # Results come from what the source announces, so measuring them
+            # here would only fight those verdicts. Stays alive and reports
+            # itself as degraded rather than exiting, which the supervisor
+            # would read as a crash.
+            log.warning(
+                "RESULT_SOURCE=message: results come from the source's own reports, "
+                "so price history is not consulted"
+            )
+            await self._idle("result source is the source's own messages")
+            return
+
         log.info("result engine started (provider=%s, available=%s)", self.provider.name, self.provider.available)
         if not self.provider.available:
             log.warning(
@@ -490,4 +516,9 @@ def _apply_outcome(signal: Signal, outcome: Outcome) -> bool:
     signal.updated_at = utcnow()
 
     after = (signal.status, signal.result, signal.profit_points, signal.loss_points, signal.max_tp_hit)
-    return before != after
+    if before != after:
+        # Measured against price history, as opposed to repeated from the
+        # source's own report. The dashboard shows the difference.
+        signal.result_source = "PRICE"
+        return True
+    return False

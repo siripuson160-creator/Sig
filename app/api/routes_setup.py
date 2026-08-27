@@ -203,6 +203,7 @@ class FinishIn(BaseModel):
     line_destination: str = ""
     line_enabled: bool = True
     dry_run: bool = False
+    result_source: str = "price"
     price_provider: str = "none"
     price_api_key: str = ""
     price_symbol: str = "XAUUSD"
@@ -426,6 +427,7 @@ def build_env(body: FinishIn) -> dict[str, str]:
         "LINE_GROUP_ID": body.line_destination.strip(),
         "LINE_ENABLED": "true" if body.line_enabled else "false",
         "DRY_RUN": "true" if body.dry_run else "false",
+        "RESULT_SOURCE": body.result_source if body.result_source in ("price", "message") else "price",
         "PRICE_DATA_PROVIDER": provider,
         "PRICE_API_KEY": body.price_api_key.strip(),
         "PRICE_SYMBOL": symbol,

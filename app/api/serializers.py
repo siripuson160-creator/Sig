@@ -55,6 +55,11 @@ def signal_summary(signal: Signal) -> dict:
         "is_complete": signal.is_complete,
         "confidence": round(signal.confidence, 2),
         "price_source": signal.price_source,
+        # PRICE = measured against price history, MESSAGE = repeated from the
+        # source's own report, MANUAL = set by an admin. Readers are entitled
+        # to know which, so it travels with every signal.
+        "result_source": signal.result_source,
+        "verified": signal.result_source == "PRICE",
         "signal_time": _iso(signal.signal_time),
         "created_at": _iso(signal.created_at),
         "updated_at": _iso(signal.updated_at),

@@ -146,3 +146,59 @@ def direction_of(word: str) -> str | None:
     if upper in {w.upper() for w in SELL_WORDS}:
         return "SELL"
     return None
+
+
+# ------------------------------------------------- outcomes announced in chat
+# Follow-ups the source posts against its own signal:
+#     "+50Pips now, make a good profit."
+#     "90Pips ! Can secure as TP2 now guys."
+#     "TP1 hit ✅"   "SL hit"   "Close now"   "set breakeven"
+#
+# These are claims, not measurements. Whether they are allowed to decide a
+# published result is a deployment choice (RESULT_SOURCE); the parsing itself
+# is just reading what was said.
+
+# "+50Pips", "90 Pips !", "150pips" — a profit announced as a distance.
+CLAIMED_PIPS_RE = re.compile(
+    r"(?P<sign>[+-])?\s*(?P<value>\d{1,4}(?:\.\d{1,2})?)\s*" + PIP_UNIT + r"\b",
+    re.IGNORECASE,
+)
+
+# "TP2 hit", "hit TP1", "secure as TP2", "close at TP3", "reached tp1".
+TP_CLAIM_RE = re.compile(
+    r"(?:"
+    r"(?:HIT|REACH(?:ED|ES)?|SECURE[DS]?|CLOSE[DS]?|TAKE|TAKING|BOOK(?:ED)?|GOT|DONE)\s*"
+    r"(?:\w+\s+){0,3}?T\s*[/.\-]?\s*P\s*(?P<index_after>[1-9](?!\d))?"
+    r"|"
+    r"T\s*[/.\-]?\s*P\s*(?P<index_before>[1-9](?!\d))?\s*"
+    r"(?:\w+\s+){0,2}?(?:HIT|REACHED|SECURED|DONE|CLOSED)"
+    r")",
+    re.IGNORECASE,
+)
+
+# "SL hit", "hit the stop", "stopped out".
+SL_CLAIM_RE = re.compile(
+    r"\b(?:S\s*[/.\-]?\s*L\s*(?:\w+\s+){0,2}?HIT|HIT\s*(?:\w+\s+){0,2}?S\s*[/.\-]?\s*L"
+    r"|STOP(?:PED)?\s*OUT|STOP\s*LOSS\s*HIT)\b",
+    re.IGNORECASE,
+)
+
+# "breakeven", "break even", "set BE", "SL to BE" — the trade was made risk-free
+# or closed at entry.
+BREAKEVEN_CLAIM_RE = re.compile(
+    r"\b(?:BREAK\s*-?\s*EVEN|BREAKEVEN|SL\s*TO\s*B\.?E\.?|SET\s*B\.?E\.?|MOVE\s*(?:SL\s*)?TO\s*ENTRY)\b",
+    re.IGNORECASE,
+)
+
+# "close now", "closed all", "exit now", Thai equivalents.
+CLOSE_CLAIM_RE = re.compile(
+    r"\b(?:CLOSE[DS]?\s*(?:ALL|NOW|EVERYTHING|HERE)?|EXIT\s*(?:ALL|NOW)?|FLAT|OUT\s*OF\s*(?:THE\s*)?TRADE)\b"
+    r"|ปิดออเดอร์|ปิดไม้|ปิดทั้งหมด",
+    re.IGNORECASE | re.UNICODE,
+)
+
+# "cancel", "no trade", "ยกเลิก" — the signal never counted.
+CANCEL_CLAIM_RE = re.compile(
+    r"\b(?:CANCEL(?:LED|LING)?|NO\s*TRADE|INVALID(?:ATED)?|IGNORE\s*(?:THIS|IT))\b|ยกเลิก",
+    re.IGNORECASE | re.UNICODE,
+)

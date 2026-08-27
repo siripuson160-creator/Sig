@@ -178,10 +178,20 @@ async def methodology() -> dict:
         "price_timeframe": settings.price_timeframe,
         "ambiguity_rule": settings.ambiguity_rule,
         "result_mode": settings.result_mode,
+        "result_source": settings.result_source,
+        "results_are_verified": settings.result_source == "price",
         "entry_fill_window_hours": settings.entry_fill_window_hours,
         "signal_expiry_hours": settings.signal_expiry_hours,
         "parsers": describe_parsers(),
         "rules": [
+            (
+                "Results are worked out from price history: each signal is replayed against the "
+                "market and judged on what the price actually did."
+                if settings.result_source == "price"
+                else "Results are taken from what the signal provider reports about its own trades "
+                "— a message such as \"90 Pips! Can secure as TP2\" decides the outcome. These "
+                "figures are self-reported and are not checked against price history."
+            ),
             "Every message from the source group is forwarded to LINE, whether or not it is a signal.",
             "An edited Telegram message is delivered as a new LINE message prefixed with EDITED; "
             "nothing already sent is edited or deleted.",
