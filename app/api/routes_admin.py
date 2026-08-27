@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit
 from app.api.security import AdminDep, check_password, client_ip, issue_token, new_login_delay, require_admin
+from app.api.broadcast import _broadcast_page
 from app.api.serializers import audit_entry, signal_summary, telegram_message
 from app.config import settings
 from app.db.models import (
@@ -150,6 +151,24 @@ async def messages(
     total = (await session.execute(count_query)).scalar_one()
     rows = await session.execute(query.order_by(TelegramMessage.id.desc()).limit(limit).offset(offset))
     return {"total": int(total), "items": [telegram_message(m) for m in rows.scalars().all()]}
+
+
+@router.get("/broadcast")
+async def broadcast(
+    identity: AdminDep,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    status: str | None = None,
+    q: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """The archive of what was pushed to the LINE group.
+
+    Shows the exact text delivered rather than the raw Telegram content, so an
+    operator can check what members actually received — the EDITED prefix
+    included.
+    """
+    return await _broadcast_page(session, limit=limit, offset=offset, status=status, search=q)
 
 
 @router.post("/messages/{row_id}/requeue")

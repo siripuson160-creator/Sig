@@ -132,3 +132,31 @@ def telegram_message(message: TelegramMessage, *, include_delivery: bool = True)
             }
         )
     return payload
+
+
+def broadcast_entry(message: TelegramMessage, *, line_text: str) -> dict:
+    """One entry in the archive of what went to the LINE group.
+
+    ``line_text`` is the exact string that was pushed — the EDITED prefix and
+    the length cap included — rather than the raw Telegram content, because the
+    point of the archive is to show what members actually received.
+    """
+    return {
+        "id": message.id,
+        "chat_id": message.chat_id,
+        "message_id": message.message_id,
+        "version": message.version,
+        "is_edit": _value(message.event_type) == "EDIT",
+        "line_text": line_text,
+        "characters": len(line_text),
+        "status": _value(message.status),
+        "line_message_id": message.line_message_id,
+        "send_attempts": message.send_attempts,
+        "last_error": message.last_error,
+        "has_media": message.has_media,
+        "posted_at": _iso(message.created_at),
+        "edited_at": _iso(message.edited_at),
+        "received_at": _iso(message.received_at),
+        "sent_at": _iso(message.sent_at),
+        "reply_to_message_id": message.reply_to_message_id,
+    }

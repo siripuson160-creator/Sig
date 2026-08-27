@@ -246,6 +246,10 @@ API_PORT={get('API_PORT', '8000')}
 ADMIN_PASSWORD={get('ADMIN_PASSWORD', '')}
 ADMIN_SESSION_HOURS={get('ADMIN_SESSION_HOURS', '12')}
 CORS_ORIGINS={get('CORS_ORIGINS', '*')}
+# Show members the archive of everything posted to LINE. Off by default: the
+# signal text is what they pay for, and this dashboard is public. The admin
+# page shows the archive either way.
+PUBLIC_BROADCAST_ENABLED={get('PUBLIC_BROADCAST_ENABLED', 'false')}
 DASHBOARD_REFRESH_SECONDS={get('DASHBOARD_REFRESH_SECONDS', '10')}
 
 # ------------------------------------------------------------ logging

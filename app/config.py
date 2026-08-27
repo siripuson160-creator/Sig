@@ -119,6 +119,11 @@ class Settings(BaseSettings):
     admin_session_hours: int = 12
     cors_origins: str = "*"
     public_dashboard_enabled: bool = True
+    # The archive of what was pushed to LINE, on the member dashboard. Off by
+    # default: the signal text is the thing members pay for, and the public
+    # dashboard is readable by anyone who has the URL. The admin page always
+    # shows it regardless.
+    public_broadcast_enabled: bool = False
     # How often the dashboard refreshes itself (section 47).
     dashboard_refresh_seconds: int = 10
 

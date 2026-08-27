@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.broadcast import _broadcast_page
 from app.api.serializers import signal_detail, signal_summary
 from app.config import settings
 from app.db.models import Direction, Signal, SignalResult, SignalStatus, SignalVersion, TelegramMessage
@@ -165,6 +166,22 @@ async def equity(
     start, end = stats_engine.range_bounds(range, date_from=date_from, date_to=date_to)
     rows = await stats_engine.load_rows(session, start=start, end=end)
     return {"range": range, "timezone": settings.timezone, "points": stats_engine.equity_curve(rows)}
+
+
+@router.get("/broadcast")
+async def broadcast(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """The archive of what was posted to the LINE group.
+
+    Off unless PUBLIC_BROADCAST_ENABLED is set: the signal text is what members
+    pay for, and this dashboard is readable by anyone with the URL.
+    """
+    if not settings.public_broadcast_enabled:
+        raise HTTPException(status_code=404, detail="the broadcast archive is not published")
+    return await _broadcast_page(session, limit=limit, offset=offset)
 
 
 @router.get("/methodology")

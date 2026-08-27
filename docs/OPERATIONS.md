@@ -246,6 +246,30 @@ The session was revoked or expired. Run `python -m app.cli login` again as the
 `signal` user, then restart the service. Messages posted while the process was
 down are replayed on reconnect (`catch_up=True`) and duplicates are dropped.
 
+### The archive of what went to LINE
+
+`/admin` → **Sent to LINE** is the record of every message the LINE group
+received, newest first. It shows the *delivered* text rather than the raw
+Telegram content, so the `EDITED` prefix and the 4900-character cap are visible
+exactly as members saw them. Search matches the message body or a Telegram
+message id, so an id pasted from a complaint finds the entry.
+
+This is the page to check when someone says a signal never arrived: the entry
+carries its delivery status, the number of attempts, the LINE message id on
+success, and the last error on failure.
+
+It is not the same as **Messages**, which is the delivery queue — that view is
+for requeuing something that failed.
+
+To show members the same archive on the public dashboard:
+
+```bash
+PUBLIC_BROADCAST_ENABLED=true
+```
+
+Off by default, deliberately: the signal text is what members pay for, and the
+public dashboard is readable by anyone who has the URL.
+
 ### Where results come from — RESULT_SOURCE
 
 Two ways to decide whether a signal won:

@@ -380,3 +380,45 @@ td.right, th.right { text-align: right; }
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
 }
+
+/* --------------------------------------------------- LINE broadcast archive */
+/* Reads as a transcript, because that is what it is: the messages the LINE
+   group received, newest first, in the form members saw them. */
+.broadcast-list { display: flex; flex-direction: column; gap: 12px; }
+
+.broadcast-entry {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.broadcast-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface);
+}
+.broadcast-head .spacer { margin-left: auto; }
+
+.broadcast-text {
+  margin: 0;
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  /* The message keeps its own line breaks; long unbroken strings wrap rather
+     than pushing the page sideways. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.broadcast-foot {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+@media (max-width: 720px) {
+  .broadcast-text { font-size: 12px; padding: 10px; }
+}
