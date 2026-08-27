@@ -115,11 +115,29 @@ def _win(spec: SignalSpec, tp_index: int, ts: datetime, notes: list[str]) -> Out
     status = {1: SignalStatus.TP1_HIT, 2: SignalStatus.TP2_HIT, 3: SignalStatus.TP3_HIT}.get(
         tp_index, SignalStatus.TP3_HIT
     )
+    if gain < 0:
+        # Reaching a take profit cannot lose money. The levels must be wrong —
+        # a misread target, or one edited onto the wrong side of entry. Say so
+        # rather than publishing the number, which would be a fabricated
+        # result dressed up as a measured one.
+        return Outcome(
+            status=SignalStatus.AMBIGUOUS,
+            result=SignalResult.AMBIGUOUS,
+            profit_points=None,
+            loss_points=None,
+            resolved_at=ts,
+            max_tp_hit=tp_index,
+            notes=notes
+            + [
+                f"TP{tp_index} at {level:g} is on the losing side of entry {spec.entry:g}; "
+                "the levels are wrong, so no result is published"
+            ],
+        )
     return Outcome(
         status=status,
         result=SignalResult.WIN if gain > 0 else SignalResult.BREAKEVEN,
-        profit_points=max(gain, 0.0),
-        loss_points=0.0 if gain >= 0 else abs(gain),
+        profit_points=gain,
+        loss_points=0.0,
         resolved_at=ts,
         max_tp_hit=tp_index,
         notes=notes,

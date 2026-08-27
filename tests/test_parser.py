@@ -110,3 +110,63 @@ def test_symbol_defaults_when_missing():
     assert parsed is not None
     assert parsed.symbol == "XAUUSD"
     assert any("assumed" in note for note in parsed.notes)
+
+
+# ------------------------------------------------- targets quoted as a distance
+# "TP: 50/100Pips" means 50 and 100 pips away from entry, not the prices 50 and
+# 100. Reading them as prices put a -4501 point "result" on the dashboard.
+def test_take_profits_quoted_in_pips_become_prices():
+    parsed = parse_signal("Gold Buy Now @ 4601 - 4596  Sl: 4590  TP: 50/100Pips")
+    assert parsed.direction == "BUY"
+    assert parsed.entry == 4601
+    assert parsed.sl == 4590          # a price, left alone
+    assert parsed.tp1 == 4606         # 4601 + 50 * 0.1
+    assert parsed.tp2 == 4611         # 4601 + 100 * 0.1
+    assert any("quoted in pips" in note for note in parsed.notes)
+
+
+def test_pip_targets_go_the_right_way_for_a_sell():
+    parsed = parse_signal("Gold Sell Now @ 4610 - 4616\nSl: 4620\nTP: 50/100Pips")
+    assert parsed.entry == 4610
+    assert parsed.tp1 == 4605         # profit is downwards
+    assert parsed.tp2 == 4600
+    assert parsed.sl == 4620
+
+
+def test_a_stop_quoted_in_pips_sits_on_the_losing_side():
+    buy = parse_signal("BUY GOLD @ 4601 SL: 50 pips TP: 100 pips")
+    assert buy.sl == 4596            # below entry for a BUY
+    assert buy.tp1 == 4611
+    sell = parse_signal("SELL GOLD @ 4601 SL: 50 pips TP: 100 pips")
+    assert sell.sl == 4606           # above entry for a SELL
+    assert sell.tp1 == 4591
+
+
+def test_prices_are_still_read_as_prices():
+    """The pips handling must not disturb the ordinary case."""
+    parsed = parse_signal("BUY GOLD 3340 SL 3330 TP1 3350 TP2 3360")
+    assert (parsed.entry, parsed.sl, parsed.tp1, parsed.tp2) == (3340, 3330, 3350, 3360)
+    assert parsed.notes == []
+
+
+def test_pip_levels_without_an_entry_are_dropped_not_guessed():
+    parsed = parse_signal("Gold Buy Now TP: 50/100 pips")
+    assert parsed.tps == []
+    assert any("no entry to measure from" in note for note in parsed.notes)
+
+
+# ------------------------------------------------------- implausible levels
+def test_a_target_nowhere_near_entry_is_discarded():
+    """Better an incomplete signal than a fabricated result (section 46)."""
+    parsed = parse_signal("BUY GOLD 4601 SL 4590 TP1 100")
+    assert parsed.tps == []
+    assert parsed.sl == 4590
+    assert any("implausible" in note for note in parsed.notes)
+
+
+def test_a_wide_but_real_stop_is_kept():
+    """The guard catches misreads, not wide stops."""
+    parsed = parse_signal("BUY GOLD 4601 SL 4500 TP1 4700")
+    assert parsed.sl == 4500
+    assert parsed.tp1 == 4700
+    assert not any("implausible" in note for note in parsed.notes)

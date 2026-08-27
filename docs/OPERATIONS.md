@@ -246,6 +246,36 @@ The session was revoked or expired. Run `python -m app.cli login` again as the
 `signal` user, then restart the service. Messages posted while the process was
 down are replayed on reconnect (`catch_up=True`) and duplicates are dropped.
 
+### Targets quoted in pips, and PIP_SIZE
+
+Some desks post the targets as a distance rather than a price:
+
+```
+Gold Buy Now @ 4601 - 4596  Sl: 4590  TP: 50/100Pips
+```
+
+That means 50 and 100 pips *away from entry*, so with `PIP_SIZE=0.1` the
+targets are 4606 and 4611. Read as prices instead, the same message produces a
+"result" of 100 − 4601 = −4501 points, which is how this was found.
+
+`PIP_SIZE` is what one pip is worth in price, and it only affects messages
+written this way. Check it against your own source's wording before trusting
+the numbers:
+
+| The source calls a $1 move on gold | `PIP_SIZE` |
+|---|---|
+| 10 pips | `0.1` (default) |
+| 100 pips | `0.01` |
+| 1 pip | `1.0` |
+
+The quickest check is a message where they announce the profit: if they say
+"+50 Pips" when price has moved from 4601.20 to 4606.33, a $5 move is 50 pips,
+so a pip is $0.10.
+
+Every converted signal says so in its notes on the dashboard, e.g.
+*"TP quoted in pips (50/100); converted at 0.1 per pip"*. After changing
+`PIP_SIZE`, restart and use **Re-parse** on the affected signals.
+
 ### A signal was parsed wrongly
 
 1. Open the signal on `/dashboard` — the parse of every version is shown.

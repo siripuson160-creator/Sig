@@ -241,3 +241,39 @@ async def test_no_open_signals_costs_no_requests(session):
     engine = ResultEngine(provider=CountingProvider([]))
     assert await engine.run_once(session) == 0
     assert engine.provider.calls == 0
+
+
+# ------------------------------------------- contradictory levels are refused
+async def test_a_take_profit_on_the_losing_side_publishes_no_result():
+    """Reaching a TP cannot lose money, so the levels must be wrong.
+
+    This is the row a real dashboard showed: "TP: 50/100Pips" had been read as
+    the prices 50 and 100. For a BUY a target counts as hit when the high
+    reaches it, so levels sitting far *below* the market are "hit" by the first
+    candle, and the P/L came out as 100 - 4601 = -4501 labelled BREAKEVEN. The
+    parser no longer misreads it, and the engine refuses the arithmetic either
+    way rather than dressing a misread up as a measured result (section 46).
+    """
+    spec = SignalSpec(direction="BUY", entry=4601, sl=4590, tps=[50.0, 100.0], signal_time=START)
+    outcome = await evaluate(
+        spec,
+        [candle(1, 4600, 4602), candle(2, 4601, 4611)],
+        now=START + timedelta(hours=1),
+    )
+    assert outcome.result == SignalResult.AMBIGUOUS
+    assert outcome.profit_points is None
+    assert outcome.loss_points is None
+    assert any("losing side" in note for note in outcome.notes)
+
+
+async def test_a_take_profit_equal_to_entry_is_breakeven_not_a_loss():
+    """The zero case still reads as breakeven, and never as a negative win."""
+    spec = SignalSpec(direction="BUY", entry=3340, sl=3330, tps=[3340.0], signal_time=START)
+    outcome = await evaluate(
+        spec,
+        [candle(1, 3339, 3341), candle(2, 3340, 3345)],
+        now=START + timedelta(hours=1),
+    )
+    assert outcome.result == SignalResult.BREAKEVEN
+    assert outcome.profit_points == 0
+    assert outcome.loss_points == 0

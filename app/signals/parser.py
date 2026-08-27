@@ -96,25 +96,35 @@ def _inside(pos: int, spans: list[tuple[int, int]]) -> bool:
     return any(start <= pos < end for start, end in spans)
 
 
-def _extract_stop_loss(text: str) -> tuple[float | None, list[tuple[int, int]]]:
+def _extract_stop_loss(text: str) -> tuple[float | None, bool, list[tuple[int, int]]]:
+    """Return ``(value, is_distance, spans)``.
+
+    ``is_distance`` is True for "SL: 50 pips", where the number is a distance
+    from entry rather than a price.
+    """
     spans: list[tuple[int, int]] = []
     value: float | None = None
+    in_pips = False
     for match in P.STOP_LOSS_RE.finditer(text):
         spans.append((match.start(), match.end()))
         if value is None:
             value = P.to_number(match.group("value"))
-    return value, spans
+            in_pips = match.group("unit") is not None
+    return value, in_pips, spans
 
 
-def _extract_take_profits(text: str) -> tuple[list[float], list[tuple[int, int]]]:
+def _extract_take_profits(text: str) -> tuple[list[float], bool, list[tuple[int, int]]]:
     """Return take-profit levels ordered by their index (TP1, TP2, TP3...).
 
     Handles ``TP1 3350`` / ``TP 3350`` / ``TP 3350 3360 3370`` and tolerates the
-    same level being restated in a later line.
+    same level being restated in a later line. The middle element of the result
+    is True when the numbers are distances ("TP: 50/100Pips") rather than
+    prices, which the caller converts once the entry is known.
     """
     indexed: dict[int, float] = {}
     unindexed: list[float] = []
     spans: list[tuple[int, int]] = []
+    in_pips = False
 
     for match in P.TAKE_PROFIT_RE.finditer(text):
         spans.append((match.start(), match.end()))
@@ -122,6 +132,8 @@ def _extract_take_profits(text: str) -> tuple[list[float], list[tuple[int, int]]
         values = [v for v in values if v is not None]
         if not values:
             continue
+        if match.group("unit") is not None:
+            in_pips = True
         index = int(match.group("index")) if match.group("index") else None
         if index is not None:
             indexed.setdefault(index, values[0])
@@ -135,7 +147,20 @@ def _extract_take_profits(text: str) -> tuple[list[float], list[tuple[int, int]]
     for value in unindexed:
         if value not in ordered:
             ordered.append(value)
-    return ordered, spans
+    return ordered, in_pips, spans
+
+
+def _from_distance(entry: float, distance: float, direction: str, *, is_target: bool) -> float:
+    """Turn a pip distance into a price.
+
+    A target is on the profitable side of entry, a stop on the losing side, so
+    the direction decides the sign.
+    """
+    offset = abs(distance) * settings.pip_size
+    profitable_up = direction == "BUY"
+    if profitable_up == is_target:
+        return entry + offset
+    return entry - offset
 
 
 def _extract_entry(text: str, direction_match, blocked: list[tuple[int, int]]) -> tuple[float | None, list[str]]:
@@ -178,6 +203,41 @@ def _extract_entry(text: str, direction_match, blocked: list[tuple[int, int]]) -
             return value, notes
 
     return None, notes
+
+
+#: A target or stop further than this from entry is not a price for this trade.
+#: Deliberately generous — it is there to catch a misread (a "50" that was a
+#: pip distance, gold "taking profit" at 100), not to judge a wide stop.
+IMPLAUSIBLE_DISTANCE = 0.25
+
+
+def _drop_implausible_levels(parsed: ParsedSignal) -> list[str]:
+    """Discard levels that cannot be prices for this trade.
+
+    Publishing a number worked out from a misread level is worse than
+    publishing nothing: it puts a fabricated result on the dashboard. Dropping
+    the level leaves the signal incomplete, so it stays PENDING and is visible
+    as something to correct by hand.
+    """
+    notes: list[str] = []
+    if parsed.entry is None or parsed.entry <= 0:
+        return notes
+
+    def too_far(level: float) -> bool:
+        return abs(level - parsed.entry) / parsed.entry > IMPLAUSIBLE_DISTANCE
+
+    if parsed.sl is not None and too_far(parsed.sl):
+        notes.append(f"SL {parsed.sl:g} is implausible against entry {parsed.entry:g}; ignored")
+        parsed.sl = None
+
+    kept = []
+    for index, tp in enumerate(parsed.tps, start=1):
+        if too_far(tp):
+            notes.append(f"TP{index} {tp:g} is implausible against entry {parsed.entry:g}; ignored")
+        else:
+            kept.append(tp)
+    parsed.tps = kept
+    return notes
 
 
 def _coherence_notes(parsed: ParsedSignal) -> list[str]:
@@ -230,8 +290,8 @@ class LabelledLevelsStrategy:
     def parse(self, text: str) -> ParsedSignal | None:
         upper = text.upper()
         direction_match = P.DIRECTION_RE.search(upper)
-        sl, sl_spans = _extract_stop_loss(upper)
-        tps, tp_spans = _extract_take_profits(upper)
+        sl, sl_in_pips, sl_spans = _extract_stop_loss(upper)
+        tps, tps_in_pips, tp_spans = _extract_take_profits(upper)
 
         if direction_match is None and sl is None and not tps:
             return None
@@ -255,6 +315,32 @@ class LabelledLevelsStrategy:
         parsed.tps = tps
         parsed.entry, entry_notes = _extract_entry(upper, direction_match, sl_spans + tp_spans)
         parsed.notes.extend(entry_notes)
+
+        # Distances only become prices once the entry and direction are known.
+        if parsed.entry is not None and parsed.direction:
+            if tps_in_pips and tps:
+                parsed.tps = [
+                    _from_distance(parsed.entry, tp, parsed.direction, is_target=True) for tp in tps
+                ]
+                pretty = "/".join(f"{tp:g}" for tp in tps)
+                parsed.notes.append(
+                    f"TP quoted in pips ({pretty}); converted at {settings.pip_size:g} per pip"
+                )
+            if sl_in_pips and sl is not None:
+                parsed.sl = _from_distance(parsed.entry, sl, parsed.direction, is_target=False)
+                parsed.notes.append(
+                    f"SL quoted in pips ({sl:g}); converted at {settings.pip_size:g} per pip"
+                )
+        elif tps_in_pips or sl_in_pips:
+            # Nothing to measure the distance from, so publishing a level would
+            # be inventing one.
+            parsed.notes.append("levels quoted in pips but no entry to measure from")
+            if tps_in_pips:
+                parsed.tps = []
+            if sl_in_pips:
+                parsed.sl = None
+
+        parsed.notes.extend(_drop_implausible_levels(parsed))
         parsed.notes.extend(_coherence_notes(parsed))
         parsed.confidence = _score(parsed)
         return parsed
