@@ -29,6 +29,7 @@ const state = {
   broadcastFilter: '',
   broadcastSearch: '',
   broadcastOffset: 0,
+  broadcastView: 'preview',
 };
 
 /** Previous / next controls for an endpoint that returns {total, limit, offset}. */
@@ -251,6 +252,11 @@ async function renderBroadcast() {
   if (state.broadcastFilter) query.set('status', state.broadcastFilter);
   if (state.broadcastSearch) query.set('q', state.broadcastSearch);
   const data = await adminApi(`/api/admin/broadcast?${query}`);
+  const config = await adminApi('/api/admin/settings').catch(() => ({}));
+  // The channel's display name is not worth a LINE round-trip on every page
+  // load; the destination id identifies the group well enough for a preview.
+  const botName = 'Signal Bot';
+  const groupLabel = config.line_destination || 'LINE group (not configured yet)';
 
   const search = el('input', {
     class: 'input',
@@ -281,39 +287,166 @@ async function renderBroadcast() {
     ]
   );
 
-  const entries = data.items.map((item) => {
-    const chip =
-      item.status === 'SENT' ? 'win' : item.status === 'FAILED' ? 'loss' : item.status === 'PENDING' ? 'open' : 'neutral';
-    return el('article', { class: 'broadcast-entry' }, [
-      el('header', { class: 'broadcast-head' }, [
-        el('span', { class: 'small faint num', text: dateTime(item.posted_at || item.received_at) }),
-        item.is_edit ? el('span', { class: 'chip open', text: 'EDITED' }) : null,
-        item.has_media ? el('span', { class: 'chip neutral', text: 'media' }) : null,
-        el('span', { class: 'chip ' + chip, text: item.status }),
-        el('span', { class: 'small faint num spacer', text: `#${item.message_id}·v${item.version}` }),
-      ]),
-      el('pre', { class: 'broadcast-text', text: item.line_text || '(empty)' }),
-      el('footer', { class: 'broadcast-foot small faint' }, [
-        `${item.characters} characters`,
-        item.sent_at ? ` · delivered ${dateTime(item.sent_at, { withDate: false })}` : '',
-        item.line_message_id ? ` · LINE id ${item.line_message_id}` : '',
-        item.last_error ? el('span', { class: 'neg', text: ` · ${item.last_error}` }) : null,
-      ]),
-    ]);
-  });
+  const modes = [
+    ['preview', 'LINE preview'],
+    ['details', 'Details'],
+  ];
+  const toggle = el(
+    'div',
+    { class: 'segmented' },
+    modes.map(([id, label]) =>
+      el('button', {
+        class: state.broadcastView === id || (!state.broadcastView && id === 'preview') ? 'active' : '',
+        text: label,
+        onclick: () => {
+          state.broadcastView = id;
+          renderTab();
+        },
+      })
+    )
+  );
+
+  const view = state.broadcastView || 'preview';
+  const body =
+    view === 'preview'
+      ? linePreview(data.items, botName, groupLabel)
+      : el('div', { class: 'broadcast-list' }, data.items.map(broadcastDetail));
 
   renderShell(
     panel(
       `Sent to LINE · ${data.total} message${data.total === 1 ? '' : 's'}`,
       [
-        data.items.length
-          ? el('div', { class: 'broadcast-list' }, entries)
-          : emptyState('Nothing matches that filter.'),
+        data.items.length ? body : emptyState('Nothing matches that filter.'),
         pager(data, () => renderTab(), 'broadcastOffset'),
       ],
-      el('div', { class: 'row', style: 'margin-left:auto;gap:8px' }, [search, filter])
+      el('div', { class: 'row', style: 'margin-left:auto;gap:8px' }, [toggle, search, filter])
     )
   );
+}
+
+/* A mock-up of the LINE group, so the operator can see what members see.
+ *
+ * A bot pushing into a group appears the way any other member does: on the
+ * left, in a white bubble, under its display name — never on the right, which
+ * is reserved for the reader's own messages. Getting that wrong would make the
+ * preview reassuring and wrong.
+ *
+ * Oldest at the top, like a real conversation, so the API's newest-first order
+ * is reversed here. */
+function linePreview(items, botName, groupLabel) {
+  const chat = [];
+  let lastDay = null;
+  // When nothing was delivered the reason is the same for every message, so it
+  // is said once at the top rather than repeated under every bubble.
+  const noneDelivered = items.length > 0 && items.every((item) => item.status === 'SKIPPED');
+
+  for (const item of [...items].reverse()) {
+    const when = item.posted_at || item.received_at;
+    const day = when ? dateTime(when, { withTime: false }) : '';
+    if (day && day !== lastDay) {
+      chat.push(el('div', { class: 'line-day' }, [el('span', { text: day })]));
+      lastDay = day;
+    }
+    chat.push(lineBubble(item, botName, when, { quiet: noneDelivered }));
+  }
+
+  return el('div', { class: 'line-preview' }, [
+    el('div', { class: 'line-header' }, [
+      el('span', { class: 'line-back', text: '‹' }),
+      el('span', { class: 'line-title', text: groupLabel }),
+      el('span', { class: 'line-count', text: `${items.length}` }),
+    ]),
+    noneDelivered
+      ? el('div', { class: 'line-banner' }, [
+          el('strong', { text: 'Test mode. ' }),
+          'This is how the messages would look — none of them were actually posted to LINE.',
+        ])
+      : null,
+    el('div', { class: 'line-chat' }, chat),
+    el('p', { class: 'line-note small faint' }, [
+      'A mock-up of the LINE group, oldest first. Each bubble is the exact text the bridge pushes — the same ',
+      'string, character for character. Everything is sent as a text message, so a Telegram photo arrives as ',
+      el('code', { text: '[photo]' }),
+      ' and the picture itself does not travel. An edit arrives as a new message prefixed ',
+      el('code', { text: 'EDITED' }),
+      '; it never replaces the one before it.',
+    ]),
+  ]);
+}
+
+function lineBubble(item, botName, when, { quiet = false } = {}) {
+  const undelivered = item.status !== 'SENT';
+  const text = item.line_text || '';
+
+  // Everything LINE receives is a text message: the bridge pushes
+  // {"type":"text"}, never an image. A Telegram photo arrives as the literal
+  // string "[photo]" in front of its caption, so that is what the bubble
+  // shows. Drawing a picture frame here would be a comfortable lie — members
+  // do not get the chart.
+  const body = [];
+  if (item.is_edit && text.startsWith('EDITED')) {
+    body.push(el('span', { class: 'line-edited', text: 'EDITED' }));
+    body.push(document.createTextNode(text.replace(/^EDITED\n*/, '')));
+  } else {
+    body.push(document.createTextNode(text));
+  }
+
+  const meta = el('div', { class: 'line-meta' }, [
+    item.status === 'SENT' ? el('span', { class: 'line-read', text: 'Read' }) : null,
+    el('span', { class: 'line-time', text: when ? dateTime(when, { withDate: false }) : '' }),
+  ]);
+
+  const notes = [];
+  if (item.has_media) {
+    notes.push(
+      el('span', { class: 'line-notsent', text: 'the image itself is not forwarded — only this text' })
+    );
+  }
+  if (undelivered && !quiet) {
+    notes.push(el('span', { class: 'line-notsent', text: statusExplanation(item) }));
+  }
+
+  return el('div', { class: 'line-row' }, [
+    el('div', { class: 'line-avatar', text: botName.slice(0, 1).toUpperCase() }),
+    el('div', { class: 'line-stack' }, [
+      el('span', { class: 'line-sender', text: botName }),
+      el('div', { class: 'line-bubble-wrap' }, [
+        el('div', { class: 'line-bubble' }, [
+          text ? el('div', { class: 'line-text' }, body) : el('div', { class: 'line-empty', text: 'nothing to send — this message produces no LINE post' }),
+        ]),
+        meta,
+      ]),
+      ...notes,
+    ]),
+  ]);
+}
+
+function statusExplanation(item) {
+  if (item.status === 'SKIPPED') return 'not sent — test mode';
+  if (item.status === 'PENDING') return 'waiting in the queue';
+  if (item.status === 'FAILED') return `failed — ${item.last_error || 'see the details view'}`;
+  return 'not delivered';
+}
+
+function broadcastDetail(item) {
+  const chip =
+    item.status === 'SENT' ? 'win' : item.status === 'FAILED' ? 'loss' : item.status === 'PENDING' ? 'open' : 'neutral';
+  return el('article', { class: 'broadcast-entry' }, [
+    el('header', { class: 'broadcast-head' }, [
+      el('span', { class: 'small faint num', text: dateTime(item.posted_at || item.received_at) }),
+      item.is_edit ? el('span', { class: 'chip open', text: 'EDITED' }) : null,
+      item.has_media ? el('span', { class: 'chip neutral', text: 'media' }) : null,
+      el('span', { class: 'chip ' + chip, text: item.status }),
+      el('span', { class: 'small faint num spacer', text: `#${item.message_id}·v${item.version}` }),
+    ]),
+    el('pre', { class: 'broadcast-text', text: item.line_text || '(empty)' }),
+    el('footer', { class: 'broadcast-foot small faint' }, [
+      `${item.characters} characters`,
+      item.sent_at ? ` · delivered ${dateTime(item.sent_at, { withDate: false })}` : '',
+      item.line_message_id ? ` · LINE id ${item.line_message_id}` : '',
+      item.last_error ? el('span', { class: 'neg', text: ` · ${item.last_error}` }) : null,
+    ]),
+  ]);
 }
 
 /* --------------------------------------------------------------- messages */

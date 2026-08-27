@@ -381,6 +381,139 @@ td.right, th.right { text-align: right; }
   .skeleton { animation: none; }
 }
 
+/* ------------------------------------------------------- LINE chat mock-up */
+/* A deliberately light, LINE-looking island inside the dark admin page: the
+   contrast is the point, because everything inside it is what a member sees in
+   the app, and everything outside it is our own bookkeeping.
+
+   Colours are LINE's own conventions: the pale blue-grey chat wallpaper, white
+   bubbles for messages from other people, and a pill for the date divider. A
+   bot pushing into a group is another participant, so it is always on the
+   left — never the right, which belongs to the reader's own messages. */
+.line-preview {
+  background: #8cabd8;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.line-header {
+  display: flex; align-items: center; gap: 10px;
+  background: #f7f8fa;
+  border-bottom: 1px solid #dfe3e8;
+  padding: 10px 14px;
+  color: #1a1a1a;
+  font-size: 14px;
+  font-weight: 600;
+}
+.line-back { color: #7a8794; font-size: 20px; line-height: 1; }
+.line-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.line-count {
+  margin-left: auto; color: #7a8794; font-weight: 500; font-size: 12px;
+}
+
+.line-chat {
+  padding: 14px 12px 18px;
+  max-height: 640px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.line-day { display: flex; justify-content: center; }
+.line-day span {
+  background: rgba(0, 0, 0, 0.22);
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 12px;
+  border-radius: 999px;
+}
+
+.line-row { display: flex; gap: 8px; align-items: flex-start; max-width: 92%; }
+/* Bubbles are never dimmed. The whole point of the mock-up is to show what the
+   message looks like in the app, and in test mode every message is undelivered
+   — fading them all would make the preview useless exactly when it is most
+   used. Delivery state is said in words instead: a banner when nothing was
+   sent, a label under the individual bubble when one message is the exception. */
+
+.line-avatar {
+  width: 34px; height: 34px; flex: 0 0 34px;
+  border-radius: 50%;
+  background: #06c755;           /* LINE green */
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700;
+}
+
+.line-stack { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.line-sender { font-size: 11px; color: rgba(255, 255, 255, 0.9); }
+
+.line-bubble-wrap { display: flex; align-items: flex-end; gap: 6px; }
+
+.line-bubble {
+  position: relative;
+  background: #fff;
+  color: #111;
+  border-radius: 4px 16px 16px 16px;   /* the tail corner points at the avatar */
+  padding: 9px 12px;
+  max-width: 460px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
+}
+.line-text {
+  font-size: 14px;
+  line-height: 1.5;
+  /* The message keeps its own line breaks, and a long unbroken run wraps
+     instead of stretching the bubble off the page. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--sans);
+}
+.line-edited {
+  display: block;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #d9822b;
+  margin-bottom: 6px;
+}
+.line-empty {
+  font-size: 13px;
+  font-style: italic;
+  color: #97a1ab;
+}
+
+.line-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.line-read { font-size: 10px; color: rgba(255, 255, 255, 0.85); }
+.line-time { font-size: 10px; color: rgba(255, 255, 255, 0.85); white-space: nowrap; }
+
+.line-notsent {
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.32);
+  border-radius: 4px;
+  padding: 2px 7px;
+  align-self: flex-start;
+}
+
+.line-banner {
+  background: #f7f8fa;
+  border-bottom: 1px solid #dfe3e8;
+  padding: 9px 14px;
+  font-size: 12px;
+  color: #6b5b1f;
+  background: #fff6e0;
+}
+.line-banner strong { color: #8a6d1a; }
+
+.line-note { margin: 10px 14px 12px; }
+
+@media (max-width: 720px) {
+  .line-row { max-width: 100%; }
+  .line-bubble { max-width: none; }
+  .line-chat { padding: 12px 8px 16px; }
+}
+
 /* --------------------------------------------------- LINE broadcast archive */
 /* Reads as a transcript, because that is what it is: the messages the LINE
    group received, newest first, in the form members saw them. */
