@@ -80,12 +80,15 @@ async def test_the_sources_own_report_decides_the_result(session, by_message):
     assert signal is not None
     assert signal.tp2 == 4611  # 100 pips from 4601
 
-    # Progress report: the trade is running, but nothing is decided yet.
+    # An announced figure is counted straight away — this desk reports its
+    # wins as a pip count, so waiting for the word "TP" would leave a winning
+    # trade at PENDING for ever.
     await post(session, 30605, "+50Pips now, make a good profit.", reply_to=30604)
-    assert signal.status == SignalStatus.ACTIVE
-    assert signal.result == SignalResult.PENDING_RESULT
+    assert signal.status == SignalStatus.ACTIVE   # held, not closed
+    assert signal.result == SignalResult.WIN
+    assert signal.profit_points == 5.0
 
-    # The verdict.
+    # Naming the target closes it, and the larger figure replaces the earlier.
     await post(session, 30606, "90Pips ! Can secure as TP2 now guys.", reply_to=30604)
     assert signal.status == SignalStatus.TP2_HIT
     assert signal.result == SignalResult.WIN
@@ -149,3 +152,105 @@ async def test_price_mode_ignores_what_the_source_claims(session, monkeypatch):
     await post(session, 31601, "90Pips ! Can secure as TP2 now guys.", reply_to=31600)
     assert created.signal.status == SignalStatus.PENDING
     assert created.signal.result_source is None
+
+
+# ------------------------------- profit announced as a pip count, not a TP
+# This desk reports its wins as "+70Pips", never by naming a target. Waiting
+# for the words "TP1" left a won trade sitting at PENDING for ever.
+GARY_SIGNAL = "Gold Buy Now @ 4594 - 4588\n\nSl: 4584\n\nTP: 50/100Pips"
+GARY_RESULT = (
+    "+70Pips making profit again.\n\nBe secure and set your breakeven. "
+    "Today 4/4 winning setup. Good job everyone"
+)
+
+
+async def test_an_announced_profit_is_counted_as_a_win(session, by_message):
+    """The real thread from the source group, start to finish."""
+    created = await post(session, 70100, GARY_SIGNAL)
+    signal = created.signal
+    assert (signal.entry, signal.sl, signal.tp1, signal.tp2) == (4594, 4584, 4599, 4604)
+    assert signal.result == SignalResult.PENDING_RESULT
+
+    await post(session, 70101, GARY_RESULT, reply_to=70100)
+    assert signal.result == SignalResult.WIN
+    assert signal.profit_points == 7.0        # 70 announced pips
+    assert signal.loss_points == 0.0
+    assert signal.result_source == "MESSAGE"
+    # Still held, not closed: they set breakeven and kept the position.
+    assert signal.status == SignalStatus.ACTIVE
+
+
+async def test_an_announced_profit_reaches_the_statistics(session, by_message):
+    from app.engine import stats_engine
+
+    await post(session, 70200, GARY_SIGNAL)
+    await post(session, 70201, GARY_RESULT, reply_to=70200)
+    await session.commit()
+
+    overview = await stats_engine.build_overview(session, "all")
+    assert overview["wins"] == 1
+    assert overview["losses"] == 0
+    assert overview["win_rate"] == 100.0
+    assert overview["total_pl_points"] == 7.0
+
+
+async def test_a_growing_profit_replaces_the_earlier_figure(session, by_message):
+    """"+50Pips" then "+90Pips" is one trade improving, not two results."""
+    created = await post(session, 70300, GARY_SIGNAL)
+    await post(session, 70301, "+50Pips now, make a good profit.", reply_to=70300)
+    assert created.signal.profit_points == 5.0
+
+    await post(session, 70302, "+90Pips ! still running", reply_to=70300)
+    assert created.signal.profit_points == 9.0
+    assert created.signal.result == SignalResult.WIN
+
+
+async def test_a_smaller_later_figure_does_not_shrink_the_result(session, by_message):
+    created = await post(session, 70400, GARY_SIGNAL)
+    await post(session, 70401, "+90Pips !", reply_to=70400)
+    await post(session, 70402, "+40Pips still", reply_to=70400)
+    assert created.signal.profit_points == 9.0
+
+
+async def test_a_named_target_still_books_the_trade(session, by_message):
+    """Naming TP2 closes it; a bare pip count leaves it running."""
+    created = await post(session, 70500, GARY_SIGNAL)
+    await post(session, 70501, "90Pips ! Can secure as TP2 now guys.", reply_to=70500)
+    assert created.signal.status == SignalStatus.TP2_HIT
+    assert created.signal.profit_points == 9.0
+
+
+async def test_setting_breakeven_alone_publishes_nothing(session, by_message):
+    """No figure announced means nothing to count."""
+    created = await post(session, 70600, GARY_SIGNAL)
+    await post(session, 70601, "Be secure and set your breakeven.", reply_to=70600)
+    assert created.signal.result == SignalResult.PENDING_RESULT
+    assert created.signal.profit_points is None
+
+
+async def test_the_day_summary_is_not_read_as_a_result(session, by_message):
+    """"Today 4/4 winning setup" is about the day, not this trade."""
+    assert parse_outcome("Today 4/4 winning setup. Good job everyone").is_empty
+
+
+async def test_seventy_pips_reads_as_seven_hundred_points(session, by_message, monkeypatch):
+    """The unit members recognise from their own terminal.
+
+    conftest pins POINT_SIZE=1.0 for the engine tests; the shipped default is
+    0.01, the MT4/MT5 point for a two-decimal gold quote. At that unit the
+    desk's "+70 Pips" — a $7.00 move — reads as +700.
+    """
+    monkeypatch.setattr(settings, "point_size", 0.01)
+
+    created = await post(session, 70700, GARY_SIGNAL)
+    await post(session, 70701, GARY_RESULT, reply_to=70700)
+    assert created.signal.profit_points == 700.0
+
+
+def test_the_shipped_default_unit_is_the_gold_point(tmp_path, monkeypatch):
+    from app.config import Settings
+
+    monkeypatch.delenv("POINT_SIZE", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    assert Settings(_env_file=str(env_file)).point_size == 0.01

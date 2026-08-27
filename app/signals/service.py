@@ -337,15 +337,35 @@ def _apply_claim(signal: Signal, outcome) -> bool:
         signal.resolved_at = utcnow()
         return True
 
-    if outcome.breakeven and not outcome.decides_the_trade:
-        # "Set breakeven" on its own protects the trade, it does not end it.
-        # The trade stays open; only the note records that it was secured.
+    if claimed is not None:
+        # An announced figure is the result the source is claiming:
+        #
+        #     "+70Pips making profit again. Be secure and set your breakeven."
+        #
+        # This desk reports its wins as a pip count rather than by naming a
+        # target, so waiting for the words "TP1" would leave a won trade
+        # sitting at PENDING for ever. The number is booked.
+        #
+        # The trade stays ACTIVE because it has not been closed — they are
+        # still holding — so a later, larger announcement on the same trade
+        # replaces this one. That is the trade improving, not a second
+        # verdict, and it is why this is not in _LOCKED_STATUSES.
+        booked = signal.profit_points if signal.result == SignalResult.WIN else None
+        if booked is not None and claimed <= booked:
+            return False  # already counted at least this much
+
+        signal.status = SignalStatus.ACTIVE
+        signal.result = (
+            SignalResult.WIN if claimed > 0 else SignalResult.LOSS if claimed < 0 else SignalResult.BREAKEVEN
+        )
+        signal.profit_points = max(claimed, 0.0)
+        signal.loss_points = abs(min(claimed, 0.0))
         return True
 
-    if claimed is not None and signal.status in (SignalStatus.PENDING, SignalStatus.ACTIVE):
-        # "+50 pips now" — progress, not a verdict. Show the trade as running.
-        signal.status = SignalStatus.ACTIVE
-        return True
+    if outcome.breakeven:
+        # "Set breakeven" with no figure protects the trade without ending it
+        # and without saying what it is worth, so there is nothing to publish.
+        return False
 
     return False
 

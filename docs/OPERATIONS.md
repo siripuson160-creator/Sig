@@ -270,6 +270,34 @@ PUBLIC_BROADCAST_ENABLED=true
 Off by default, deliberately: the signal text is what members pay for, and the
 public dashboard is readable by anyone who has the URL.
 
+### Changing settings from the admin page
+
+`/admin` → **Settings** edits the connection settings without an SSH session:
+the Telegram credentials, the LINE token and destination, test mode, the price
+provider and its key, the scoring rules. Saving rewrites `.env` and restarts
+the service, so what is running is always what is on disk.
+
+Three things fence that write path:
+
+* **A fixed allow-list.** Only the keys in `EDITABLE` (`app/api/routes_settings.py`)
+  can be written; anything else posted is refused. No statistic is on that
+  list, so section 43 still holds — nothing on the dashboard can be typed in.
+* **Secrets are never sent back to the browser.** A token shows as
+  `abcd…wxyz` and an empty box means "keep what is stored", so the form can be
+  saved without re-typing it.
+* **Every change is audited**, naming the keys that moved, who moved them and
+  from where — never a secret's value.
+
+Anything not on the page is still edited in `.env` and picked up on restart.
+
+### Language
+
+The dashboard and the admin console are in Thai and English, Thai by default.
+The switch is in the top bar and the choice is remembered per browser.
+Translations live in one file, `app/web/static/js/i18n.js`, keyed by the
+English text: a string with no Thai entry falls back to English rather than
+breaking, so adding a phrase to the UI never breaks the other language.
+
 ### Where results come from — RESULT_SOURCE
 
 Two ways to decide whether a signal won:
@@ -283,12 +311,22 @@ In `message` mode, a follow-up the provider posts *as a reply* to its own
 signal is read for an outcome:
 
 ```
-90Pips ! Can secure as TP2 now guys.   ->  TP2 hit, +9 points
++70Pips making profit again.           ->  win, +7 points, still held
+90Pips ! Can secure as TP2 now guys.   ->  TP2 hit, +9 points, closed
 SL hit guys, next one soon             ->  loss, entry to stop
-+50Pips now, make a good profit.       ->  still running (progress, not a verdict)
-Good Job guys. Now set breakeven       ->  still running
+Be secure and set your breakeven.      ->  nothing published (no figure given)
 cancel this one, no trade              ->  CANCELLED, not counted as a loss
 ```
+
+**An announced pip count is the result.** This desk reports its wins as
+"+70Pips" and rarely names a target, so waiting for the words "TP1" would leave
+a won trade at PENDING for ever. The figure is booked as a win immediately, and
+the signal stays ACTIVE because it has not been closed — they are still holding.
+
+A later, larger figure on the same trade replaces the earlier one: "+50Pips"
+then "+90Pips" is one trade improving, not two results. A smaller later figure
+does not shrink what was already counted. Naming a target ("secure as TP2")
+closes the trade for good.
 
 **The Telegram reply is the link.** A report that does not reply to the signal
 cannot be attached to a trade and is ignored, because guessing which trade was

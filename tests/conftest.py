@@ -21,6 +21,10 @@ os.environ["LINE_CHANNEL_ACCESS_TOKEN"] = "test-token"
 os.environ["LINE_TARGET_ID"] = "Ctestgroup"
 os.environ["ADMIN_API_KEY"] = "test-admin-key"
 os.environ["PRICE_DATA_PROVIDER"] = "none"
+# The engine tests talk in whole dollars ("a 10 point loss" for 3340 -> 3330),
+# so the unit is pinned here rather than following the deployment default.
+# The tests that care about the unit itself set it explicitly.
+os.environ["POINT_SIZE"] = "1.0"
 os.environ["TIMEZONE"] = "Asia/Bangkok"
 
 import pytest  # noqa: E402
