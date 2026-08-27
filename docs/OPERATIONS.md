@@ -283,12 +283,22 @@ In `message` mode, a follow-up the provider posts *as a reply* to its own
 signal is read for an outcome:
 
 ```
-90Pips ! Can secure as TP2 now guys.   ->  TP2 hit, +9 points
++70Pips making profit again.           ->  win, +7 points, still held
+90Pips ! Can secure as TP2 now guys.   ->  TP2 hit, +9 points, closed
 SL hit guys, next one soon             ->  loss, entry to stop
-+50Pips now, make a good profit.       ->  still running (progress, not a verdict)
-Good Job guys. Now set breakeven       ->  still running
+Be secure and set your breakeven.      ->  nothing published (no figure given)
 cancel this one, no trade              ->  CANCELLED, not counted as a loss
 ```
+
+**An announced pip count is the result.** This desk reports its wins as
+"+70Pips" and rarely names a target, so waiting for the words "TP1" would leave
+a won trade at PENDING for ever. The figure is booked as a win immediately, and
+the signal stays ACTIVE because it has not been closed — they are still holding.
+
+A later, larger figure on the same trade replaces the earlier one: "+50Pips"
+then "+90Pips" is one trade improving, not two results. A smaller later figure
+does not shrink what was already counted. Naming a target ("secure as TP2")
+closes the trade for good.
 
 **The Telegram reply is the link.** A report that does not reply to the signal
 cannot be attached to a trade and is ignored, because guessing which trade was
