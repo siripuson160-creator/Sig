@@ -555,3 +555,26 @@ td.right, th.right { text-align: right; }
 @media (max-width: 720px) {
   .broadcast-text { font-size: 12px; padding: 10px; }
 }
+
+/* --------------------------------------------------------- settings editor */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 8px 28px;
+  margin-top: 16px;
+}
+.settings-group h3 {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 8px 0 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-soft);
+}
+/* Keys are shown verbatim so what is on screen matches the .env line. */
+.settings-group .field-label { font-size: 12px; color: var(--text-dim); }
+
+/* ------------------------------------------------------------ language */
+.lang-switch button { min-width: 34px; text-align: center; }
+.lang-switch button.active { color: var(--text); background: var(--surface-3); }

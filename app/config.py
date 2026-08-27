@@ -79,8 +79,12 @@ class Settings(BaseSettings):
     price_drilldown_timeframe: str = "1m"
     price_api_key: str = ""
     price_csv_path: str = "./data/prices"
-    # 1 "point" of price movement. Gold quoted as 3340.00 -> 1 point = 1.0.
-    point_size: float = 1.0
+    # The size of one "point", the unit every published statistic is in.
+    # 0.01 is the MT4/MT5 point for a gold quote carrying two decimals, so a
+    # $1 move is 100 points and the desk's "+70 Pips" ($7.00) reads as +700 —
+    # the number members recognise from their own terminal.
+    # Set 1.0 to count whole dollars instead.
+    point_size: float = 0.01
     # What one "pip" is worth in price, used only to read targets quoted as a
     # distance ("TP: 50/100Pips") rather than a price. For XAUUSD most desks
     # call $0.10 a pip, so "50 pips" from 4601 is 4606. Check this against your

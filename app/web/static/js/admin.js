@@ -17,6 +17,7 @@ import {
   signClass,
   statusChip,
 } from './util.js';
+import { languageSwitch, t } from './i18n.js';
 
 const TOKEN_STORE = 'signal-admin-token';
 const view = document.getElementById('view');
@@ -46,8 +47,8 @@ function pager(data, onChange, stateKey) {
   };
   return el('div', { class: 'pager' }, [
     el('span', { class: 'faint', text: `${offset + 1}–${Math.min(offset + limit, data.total)} of ${data.total}` }),
-    el('button', { class: 'btn', text: 'Previous', disabled: page <= 0, onclick: () => go(page - 1) }),
-    el('button', { class: 'btn', text: 'Next', disabled: page >= last, onclick: () => go(page + 1) }),
+    el('button', { class: 'btn', text: t('Previous'), disabled: page <= 0, onclick: () => go(page - 1) }),
+    el('button', { class: 'btn', text: t('Next'), disabled: page >= last, onclick: () => go(page + 1) }),
   ]);
 }
 
@@ -78,7 +79,7 @@ async function adminApi(path, options = {}) {
 
 function renderLogin(message = '') {
   signOutButton.hidden = true;
-  const input = el('input', { class: 'input', type: 'password', placeholder: 'Admin password', style: 'flex:1' });
+  const input = el('input', { class: 'input', type: 'password', placeholder: t('Admin password'), style: 'flex:1' });
 
   const submit = async () => {
     try {
@@ -96,13 +97,13 @@ function renderLogin(message = '') {
 
   clear(view).append(
     el('div', { class: 'panel', style: 'max-width:440px;margin:48px auto' }, [
-      el('div', { class: 'panel-head' }, [el('h2', { text: 'Administrator sign-in' })]),
+      el('div', { class: 'panel-head' }, [el('h2', { text: t('Administrator sign-in') })]),
       el('div', { class: 'panel-body stack', style: 'gap:12px' }, [
         message ? el('div', { class: 'notice warn' }, [message]) : null,
-        el('div', { class: 'row' }, [input, el('button', { class: 'btn primary', text: 'Sign in', onclick: submit })]),
+        el('div', { class: 'row' }, [input, el('button', { class: 'btn primary', text: t('Sign in'), onclick: submit })]),
         el('div', {
           class: 'small faint',
-          text: 'ADMIN_PASSWORD from the server environment. Sign-ins, successful or not, are recorded in the audit log.',
+          text: t('ADMIN_PASSWORD from the server environment. Sign-ins, successful or not, are recorded in the audit log.'),
         }),
       ]),
     ])
@@ -113,15 +114,15 @@ function renderLogin(message = '') {
 
 /* ------------------------------------------------------------------ shell */
 const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'messages', label: 'Messages' },
-  { id: 'broadcast', label: 'Sent to LINE' },
-  { id: 'signals', label: 'Signals' },
-  { id: 'edits', label: 'Edit history' },
-  { id: 'statistics', label: 'Statistics' },
-  { id: 'audit', label: 'Audit log' },
-  { id: 'system', label: 'System status' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'overview', label: t('Overview') },
+  { id: 'messages', label: t('Messages') },
+  { id: 'broadcast', label: t('Sent to LINE') },
+  { id: 'signals', label: t('Signals') },
+  { id: 'edits', label: t('Edit history') },
+  { id: 'statistics', label: t('Statistics') },
+  { id: 'audit', label: t('Audit log') },
+  { id: 'system', label: t('System status') },
+  { id: 'settings', label: t('Settings') },
 ];
 
 function renderShell(body) {
@@ -182,13 +183,13 @@ async function renderOverview() {
         ? el('div', { class: 'panel' }, [
             el('div', { class: 'panel-body' }, [
               el('div', { class: 'notice warn' }, [
-                el('strong', { text: 'Test mode. ' }),
+                el('strong', { text: t('Test mode. ') }),
                 'DRY_RUN=true — messages are received, parsed and stored, but nothing is sent to LINE.',
               ]),
             ]),
           ])
         : null,
-      panel('Status', [
+      panel(t('Status'), [
         el('div', { class: 'detail-grid' }, [
           lamp('Telegram', status.lights.telegram, (status.components.telegram || {}).detail || ''),
           lamp('LINE', status.lights.line, (status.components.line || {}).detail || ''),
@@ -197,13 +198,13 @@ async function renderOverview() {
           lamp('Dashboard', status.lights.dashboard),
         ]),
       ]),
-      panel('Delivery queue', [
+      panel(t('Delivery queue'), [
         el('div', { class: 'detail-grid' }, [
-          kv('Pending', String(delivery.PENDING ?? 0)),
-          kv('Sent', String(delivery.SENT ?? 0), 'pos'),
-          kv('Failed', String(delivery.FAILED ?? 0), delivery.FAILED ? 'neg' : ''),
-          kv('Skipped', String(delivery.SKIPPED ?? 0)),
-          kv('Open signals', String(status.open_signals)),
+          kv(t('Pending'), String(delivery.PENDING ?? 0)),
+          kv(t('Sent'), String(delivery.SENT ?? 0), 'pos'),
+          kv(t('Failed'), String(delivery.FAILED ?? 0), delivery.FAILED ? 'neg' : ''),
+          kv(t('Skipped'), String(delivery.SKIPPED ?? 0)),
+          kv(t('Open signals'), String(status.open_signals)),
         ]),
         delivery.FAILED
           ? el('div', { class: 'notice warn', style: 'margin-top:14px' }, [
@@ -211,18 +212,18 @@ async function renderOverview() {
             ])
           : null,
       ]),
-      panel('Connections', [
+      panel(t('Connections'), [
         el('div', { class: 'detail-grid' }, [
-          kv('Telegram source', (status.telegram_source || []).join(', ') || 'not set'),
-          kv('LINE configured', status.line_configured ? 'yes' : 'no', status.line_configured ? 'pos' : 'neg'),
-          kv('Price provider', `${status.price_provider.name}${status.price_provider.available ? '' : ' (no data)'}`),
-          kv('Timezone', status.timezone),
-          kv('Signed in as', status.signed_in_as),
+          kv(t('Telegram source'), (status.telegram_source || []).join(', ') || 'not set'),
+          kv(t('LINE configured'), status.line_configured ? 'yes' : 'no', status.line_configured ? 'pos' : 'neg'),
+          kv(t('Price provider'), `${status.price_provider.name}${status.price_provider.available ? '' : ' (no data)'}`),
+          kv(t('Timezone'), status.timezone),
+          kv(t('Signed in as'), status.signed_in_as),
         ]),
         el('div', { class: 'row', style: 'margin-top:16px' }, [
           el('button', {
             class: 'btn',
-            text: 'Test LINE credentials',
+            text: t('Test LINE credentials'),
             onclick: async (event) => {
               const button = event.target;
               button.disabled = true;
@@ -260,7 +261,7 @@ async function renderBroadcast() {
 
   const search = el('input', {
     class: 'input',
-    placeholder: 'Search text or message id…',
+    placeholder: t('Search text or message id…'),
     value: state.broadcastSearch || '',
     oninput: debounce((event) => {
       state.broadcastSearch = event.target.value.trim();
@@ -280,7 +281,7 @@ async function renderBroadcast() {
       },
     },
     [
-      el('option', { value: '', text: 'All' }),
+      el('option', { value: '', text: t('All') }),
       ...['SENT', 'PENDING', 'FAILED', 'SKIPPED'].map((status) =>
         el('option', { value: status, text: status, selected: state.broadcastFilter === status })
       ),
@@ -316,7 +317,7 @@ async function renderBroadcast() {
     panel(
       `Sent to LINE · ${data.total} message${data.total === 1 ? '' : 's'}`,
       [
-        data.items.length ? body : emptyState('Nothing matches that filter.'),
+        data.items.length ? body : emptyState(t('Nothing matches that filter.')),
         pager(data, () => renderTab(), 'broadcastOffset'),
       ],
       el('div', { class: 'row', style: 'margin-left:auto;gap:8px' }, [toggle, search, filter])
@@ -358,7 +359,7 @@ function linePreview(items, botName, groupLabel) {
     ]),
     noneDelivered
       ? el('div', { class: 'line-banner' }, [
-          el('strong', { text: 'Test mode. ' }),
+          el('strong', { text: t('Test mode. ') }),
           'This is how the messages would look — none of them were actually posted to LINE.',
         ])
       : null,
@@ -366,9 +367,9 @@ function linePreview(items, botName, groupLabel) {
     el('p', { class: 'line-note small faint' }, [
       'A mock-up of the LINE group, oldest first. Each bubble is the exact text the bridge pushes — the same ',
       'string, character for character. Everything is sent as a text message, so a Telegram photo arrives as ',
-      el('code', { text: '[photo]' }),
+      el('code', { text: t('[photo]') }),
       ' and the picture itself does not travel. An edit arrives as a new message prefixed ',
-      el('code', { text: 'EDITED' }),
+      el('code', { text: t('EDITED') }),
       '; it never replaces the one before it.',
     ]),
   ]);
@@ -385,21 +386,21 @@ function lineBubble(item, botName, when, { quiet = false } = {}) {
   // do not get the chart.
   const body = [];
   if (item.is_edit && text.startsWith('EDITED')) {
-    body.push(el('span', { class: 'line-edited', text: 'EDITED' }));
+    body.push(el('span', { class: 'line-edited', text: t('EDITED') }));
     body.push(document.createTextNode(text.replace(/^EDITED\n*/, '')));
   } else {
     body.push(document.createTextNode(text));
   }
 
   const meta = el('div', { class: 'line-meta' }, [
-    item.status === 'SENT' ? el('span', { class: 'line-read', text: 'Read' }) : null,
+    item.status === 'SENT' ? el('span', { class: 'line-read', text: t('Read') }) : null,
     el('span', { class: 'line-time', text: when ? dateTime(when, { withDate: false }) : '' }),
   ]);
 
   const notes = [];
   if (item.has_media) {
     notes.push(
-      el('span', { class: 'line-notsent', text: 'the image itself is not forwarded — only this text' })
+      el('span', { class: 'line-notsent', text: t('the image itself is not forwarded — only this text') })
     );
   }
   if (undelivered && !quiet) {
@@ -412,7 +413,7 @@ function lineBubble(item, botName, when, { quiet = false } = {}) {
       el('span', { class: 'line-sender', text: botName }),
       el('div', { class: 'line-bubble-wrap' }, [
         el('div', { class: 'line-bubble' }, [
-          text ? el('div', { class: 'line-text' }, body) : el('div', { class: 'line-empty', text: 'nothing to send — this message produces no LINE post' }),
+          text ? el('div', { class: 'line-text' }, body) : el('div', { class: 'line-empty', text: t('nothing to send — this message produces no LINE post') }),
         ]),
         meta,
       ]),
@@ -434,7 +435,7 @@ function broadcastDetail(item) {
   return el('article', { class: 'broadcast-entry' }, [
     el('header', { class: 'broadcast-head' }, [
       el('span', { class: 'small faint num', text: dateTime(item.posted_at || item.received_at) }),
-      item.is_edit ? el('span', { class: 'chip open', text: 'EDITED' }) : null,
+      item.is_edit ? el('span', { class: 'chip open', text: t('EDITED') }) : null,
       item.has_media ? el('span', { class: 'chip neutral', text: 'media' }) : null,
       el('span', { class: 'chip ' + chip, text: item.status }),
       el('span', { class: 'small faint num spacer', text: `#${item.message_id}·v${item.version}` }),
@@ -466,7 +467,7 @@ async function renderMessages() {
       },
     },
     [
-      el('option', { value: '', text: 'All statuses' }),
+      el('option', { value: '', text: t('All statuses') }),
       ...['PENDING', 'SENT', 'FAILED', 'SKIPPED'].map((status) =>
         el('option', { value: status, text: status, selected: state.messageFilter === status })
       ),
@@ -502,12 +503,12 @@ async function renderMessages() {
           ? el('span', { class: 'faint small', text: dateTime(message.sent_at, { withDate: false }) })
           : el('button', {
               class: 'btn',
-              text: 'Requeue',
+              text: t('Requeue'),
               onclick: async (event) => {
                 event.target.disabled = true;
                 try {
                   await adminApi(`/api/admin/messages/${message.id}/requeue`, { method: 'POST' });
-                  toast('Requeued for delivery.', true);
+                  toast(t('Requeued for delivery.'), true);
                   renderTab();
                 } catch (error) {
                   toast(error.message, false);
@@ -522,18 +523,18 @@ async function renderMessages() {
   renderShell(
     el('div', { class: 'panel' }, [
       el('div', { class: 'panel-head' }, [
-        el('h2', { text: 'Telegram → LINE messages' }),
+        el('h2', { text: t('Telegram → LINE messages') }),
         el('span', { class: 'panel-note', text: `${data.total} total` }),
         filter,
       ]),
       data.items.length
         ? el('div', { class: 'table-wrap' }, [
             el('table', {}, [
-              tableHead(['Received', 'Message', 'Type', 'Content', 'Status', 'Tries', '']),
+              tableHead([t('Received'), t('Message'), t('Type'), t('Content'), t('Status'), t('Tries'), '']),
               el('tbody', {}, rows),
             ]),
           ])
-        : emptyState('No messages recorded yet.'),
+        : emptyState(t('No messages recorded yet.')),
     ])
   );
 }
@@ -555,8 +556,8 @@ async function renderEdits() {
     el('div', {}, [
       el('div', { class: 'panel' }, [
         el('div', { class: 'panel-head' }, [
-          el('h2', { text: 'Edited messages' }),
-          el('span', { class: 'panel-note', text: 'every version is kept; nothing here can be deleted' }),
+          el('h2', { text: t('Edited messages') }),
+          el('span', { class: 'panel-note', text: t('every version is kept; nothing here can be deleted') }),
         ]),
         el('div', { class: 'panel-body' }, [
           data.items.length
@@ -589,7 +590,7 @@ async function renderEdits() {
                   ])
                 )
               )
-            : emptyState('No message has been edited yet.'),
+            : emptyState(t('No message has been edited yet.')),
         ]),
       ]),
     ])
@@ -613,7 +614,7 @@ async function renderAudit() {
       },
     },
     [
-      el('option', { value: '', text: 'All events' }),
+      el('option', { value: '', text: t('All events') }),
       ...(data.events || []).map((event) =>
         el('option', { value: event, text: event.replace(/_/g, ' '), selected: state.auditFilter === event })
       ),
@@ -650,15 +651,15 @@ async function renderAudit() {
   renderShell(
     el('div', { class: 'panel' }, [
       el('div', { class: 'panel-head' }, [
-        el('h2', { text: 'Audit log' }),
+        el('h2', { text: t('Audit log') }),
         el('span', { class: 'panel-note', text: `${data.total} entries · append-only` }),
         filter,
       ]),
       data.items.length
         ? el('div', { class: 'table-wrap' }, [
-            el('table', {}, [tableHead(['When', 'Event', 'What happened', 'Actor', 'Entity']), el('tbody', {}, rows)]),
+            el('table', {}, [tableHead([t('When'), t('Event'), t('What happened'), t('Actor'), t('Entity')]), el('tbody', {}, rows)]),
           ])
-        : emptyState('Nothing recorded yet.'),
+        : emptyState(t('Nothing recorded yet.')),
     ])
   );
 }
@@ -673,26 +674,26 @@ async function renderStatistics() {
       el('div', { class: 'panel' }, [
         el('div', { class: 'panel-body' }, [
           el('div', { class: 'notice' }, [
-            el('strong', { text: 'These numbers cannot be edited. ' }),
+            el('strong', { text: t('These numbers cannot be edited. ') }),
             'They are computed from the signals table by the statistics engine every time this page loads. ' +
               'There is no field anywhere in this console that sets a win rate, a profit total or a signal count.',
           ]),
         ]),
       ]),
-      panel('All time', [
+      panel(t('All time'), [
         el('div', { class: 'detail-grid' }, [
-          kv('Total signals', String(o.total_signals)),
-          kv('Wins', String(o.wins), 'pos'),
-          kv('Losses', String(o.losses), 'neg'),
-          kv('Win rate', percent(o.win_rate)),
-          kv('Total P/L', `${points(o.total_pl_points)} pts`, signClass(o.total_pl_points)),
-          kv('Profit factor', o.profit_factor === null ? '—' : o.profit_factor.toFixed(2)),
-          kv('Max drawdown', `${points(o.max_drawdown_points)} pts`, 'neg'),
-          kv('Average P/L', `${points(o.expectancy_points)} pts`, signClass(o.expectancy_points)),
-          kv('Risk : reward', o.rr_display || '—'),
-          kv('Pending', String(o.pending)),
-          kv('Ambiguous', String(o.ambiguous)),
-          kv('Cancelled', String(o.cancelled)),
+          kv(t('Total signals'), String(o.total_signals)),
+          kv(t('Wins'), String(o.wins), 'pos'),
+          kv(t('Losses'), String(o.losses), 'neg'),
+          kv(t('Win rate'), percent(o.win_rate)),
+          kv(t('Total P/L'), `${points(o.total_pl_points)} pts`, signClass(o.total_pl_points)),
+          kv(t('Profit factor'), o.profit_factor === null ? '—' : o.profit_factor.toFixed(2)),
+          kv(t('Max drawdown'), `${points(o.max_drawdown_points)} pts`, 'neg'),
+          kv(t('Average P/L'), `${points(o.expectancy_points)} pts`, signClass(o.expectancy_points)),
+          kv(t('Risk : reward'), o.rr_display || '—'),
+          kv(t('Pending'), String(o.pending)),
+          kv(t('Ambiguous'), String(o.ambiguous)),
+          kv(t('Cancelled'), String(o.cancelled)),
         ]),
       ]),
     ])
@@ -706,11 +707,11 @@ async function renderSystem() {
 
   renderShell(
     el('div', {}, [
-      panel('Components', [
+      panel(t('Components'), [
         Object.keys(components).length
           ? el('div', { class: 'table-wrap' }, [
               el('table', {}, [
-                tableHead(['Component', 'Status', 'Detail', 'Last heartbeat']),
+                tableHead([t('Component'), t('Status'), t('Detail'), t('Last heartbeat')]),
                 el(
                   'tbody',
                   {},
@@ -730,18 +731,18 @@ async function renderSystem() {
                 ),
               ]),
             ])
-          : emptyState('No component has reported in yet. Start the bridge with python -m app.main.'),
+          : emptyState(t('No component has reported in yet. Start the bridge with python -m app.main.')),
         el('div', {
           class: 'panel-note',
           style: 'margin-top:12px',
-          text: 'A component that has not checked in for two minutes is shown as DOWN.',
+          text: t('A component that has not checked in for two minutes is shown as DOWN.'),
         }),
       ]),
-      panel('Price provider', [
+      panel(t('Price provider'), [
         el('div', { class: 'detail-grid' }, [
-          kv('Provider', status.price_provider.name),
-          kv('Price data', status.price_provider.available ? 'available' : 'none configured'),
-          kv('Available providers', (status.available_price_providers || []).join(', ')),
+          kv(t('Provider'), status.price_provider.name),
+          kv(t('Price data'), status.price_provider.available ? 'available' : 'none configured'),
+          kv(t('Available providers'), (status.available_price_providers || []).join(', ')),
         ]),
       ]),
     ])
@@ -750,16 +751,147 @@ async function renderSystem() {
 
 /* ---------------------------------------------------------------- settings */
 async function renderSettings() {
-  const data = await adminApi('/api/admin/settings');
-  const rows = Object.entries(data).filter(([key]) => key !== 'note');
+  const data = await adminApi('/api/admin/settings/editable');
+
+  const GROUPS = [
+    ['Telegram', ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SOURCE_CHAT_ID']],
+    ['LINE', ['LINE_CHANNEL_ACCESS_TOKEN', 'LINE_GROUP_ID', 'LINE_ENABLED', 'DRY_RUN',
+              'ADD_EDITED_PREFIX', 'LINE_EDIT_PREFIX']],
+    ['Results and prices', ['RESULT_SOURCE', 'PRICE_DATA_PROVIDER', 'PRICE_API_KEY', 'PRICE_SYMBOL',
+                            'POINT_SIZE', 'PIP_SIZE', 'AMBIGUITY_RULE']],
+    ['Dashboard', ['TIMEZONE', 'PUBLIC_BROADCAST_ENABLED']],
+  ];
+
+  const byKey = Object.fromEntries(data.items.map((item) => [item.key, item]));
+  const inputs = {};
+
+  function control(item) {
+    if (item.kind === 'bool') {
+      const select = el('select', { class: 'select' }, [
+        el('option', { value: 'true', text: t('On') }),
+        el('option', { value: 'false', text: t('Off') }),
+      ]);
+      select.value = String(item.value).toLowerCase() === 'true' ? 'true' : 'false';
+      return select;
+    }
+    if (item.kind === 'choice') {
+      const select = el('select', { class: 'select' }, (item.choices || []).map((choice) =>
+        el('option', { value: choice, text: choice })
+      ));
+      select.value = item.value || (item.choices || [])[0];
+      return select;
+    }
+    return el('input', {
+      class: 'input',
+      type: item.secret ? 'password' : 'text',
+      value: item.secret ? '' : item.value || '',
+      autocomplete: 'off',
+      // A stored secret is never sent back to the browser, so the box shows
+      // the masked hint and staying blank keeps what is already stored.
+      placeholder: item.secret
+        ? item.is_set
+          ? `stored (${item.value}) — leave blank to keep`
+          : 'not set'
+        : '',
+    });
+  }
+
+  const sections = GROUPS.map(([title, keys]) =>
+    el('section', { class: 'settings-group' }, [
+      el('h3', { text: title }),
+      ...keys.filter((key) => byKey[key]).map((key) => {
+        const item = byKey[key];
+        const input = control(item);
+        inputs[key] = input;
+        return el('label', { class: 'field' }, [
+          el('span', { class: 'field-label num', text: key }),
+          input,
+          SETTING_HINTS[key] ? el('span', { class: 'field-hint', text: t(SETTING_HINTS[key]) }) : null,
+        ]);
+      }),
+    ])
+  );
+
+  const box = el('div');
+  const save = el('button', { class: 'btn primary', text: t('Save and restart') });
+
+  save.onclick = async () => {
+    clear(box);
+    save.disabled = true;
+    const label = save.textContent;
+    save.textContent = 'Saving…';
+    try {
+      const values = {};
+      for (const [key, input] of Object.entries(inputs)) values[key] = input.value;
+      const result = await adminApi('/api/admin/settings/editable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values, restart: true }),
+      });
+      if (!result.changed.length) {
+        box.append(el('div', { class: 'notice', text: t('Nothing changed.') }));
+      } else {
+        box.append(
+          el('div', { class: 'notice ok' }, [
+            el('strong', { text: t('Saved: {keys}. ', { keys: result.changed.join(', ') }) }),
+            t('The service is restarting — give it about ten seconds, then reload this page.'),
+          ])
+        );
+      }
+    } catch (error) {
+      box.append(el('div', { class: 'notice bad', text: error.message }));
+    } finally {
+      save.disabled = false;
+      save.textContent = label;
+    }
+  };
+
+  const testLine = el('button', { class: 'btn', text: t('Test LINE now') });
+  testLine.onclick = async () => {
+    clear(box);
+    testLine.disabled = true;
+    try {
+      const result = await adminApi('/api/admin/line/test', { method: 'POST' });
+      box.append(
+        el('div', { class: `notice ${result.ok ? 'ok' : 'bad'}`, text:
+          result.ok ? `LINE ok — ${result.detail}` : `LINE failed — ${result.detail}` })
+      );
+    } catch (error) {
+      box.append(el('div', { class: 'notice bad', text: error.message }));
+    }
+    testLine.disabled = false;
+  };
 
   renderShell(
-    panel('Configuration in force', [
-      el('div', { class: 'detail-grid' }, rows.map(([key, value]) => kv(key.replace(/_/g, ' '), String(value)))),
-      el('div', { class: 'notice', style: 'margin-top:16px' }, [data.note]),
+    panel(t('Settings'), [
+      el('div', { class: 'notice' }, [
+        el('strong', { text: t('These are the live settings. ') }),
+        t('Saving rewrites the settings file and restarts the service, so what is running is always what is on disk. Leave a secret blank to keep the stored value.'),
+      ]),
+      el('div', { class: 'settings-grid' }, sections),
+      box,
+      el('div', { class: 'setup-actions' }, [save, testLine]),
+      el('p', { class: 'field-hint num', text: data.env_path }),
     ])
   );
 }
+
+const SETTING_HINTS = {
+  TELEGRAM_API_ID: 'From my.telegram.org → API development tools.',
+  TELEGRAM_API_HASH: 'From the same page. Changing it needs a fresh sign-in.',
+  TELEGRAM_SOURCE_CHAT_ID: 'The group the signals are read from, e.g. -1001234567890.',
+  LINE_CHANNEL_ACCESS_TOKEN: 'Messaging API → Channel access token (long-lived).',
+  LINE_GROUP_ID: 'Starts with C for a group, R for a room, U for a person.',
+  LINE_ENABLED: 'Off stores messages without pushing them.',
+  DRY_RUN: 'On is test mode: read and parse everything, post nothing.',
+  ADD_EDITED_PREFIX: 'Whether an edited message is delivered marked EDITED.',
+  RESULT_SOURCE: 'price = checked against price history. message = the provider’s own reports.',
+  PRICE_API_KEY: 'Twelve Data key. Only needed when the provider is twelvedata.',
+  POINT_SIZE: 'The unit statistics are reported in. 0.01 makes a $7 move read as 700.',
+  PIP_SIZE: 'What one pip is worth in price, for targets quoted as "TP: 50/100Pips".',
+  AMBIGUITY_RULE: 'When one candle holds both the target and the stop.',
+  PUBLIC_BROADCAST_ENABLED: 'Show members the archive of everything posted to LINE.',
+};
 
 /* ----------------------------------------------------------------- signals */
 async function renderSignals() {
@@ -792,17 +924,17 @@ async function renderSignals() {
   renderShell(
     el('div', { class: 'panel' }, [
       el('div', { class: 'panel-head' }, [
-        el('h2', { text: 'Signals' }),
+        el('h2', { text: t('Signals') }),
         el('span', { class: 'panel-note', text: `${data.total} total` }),
       ]),
       data.items.length
         ? el('div', { class: 'table-wrap' }, [
             el('table', {}, [
-              tableHead(['Posted', 'Dir', 'Entry', 'SL', 'TP1', 'Status', 'Result', 'P/L', 'Actions']),
+              tableHead([t('Posted'), 'Dir', t('Entry'), t('SL'), t('TP1'), t('Status'), t('Result'), t('P/L'), 'Actions']),
               el('tbody', {}, rows),
             ]),
           ])
-        : emptyState('No signals recorded yet.'),
+        : emptyState(t('No signals recorded yet.')),
     ])
   );
 }
@@ -917,6 +1049,7 @@ function toast(message, ok) {
 }
 
 /* ------------------------------------------------------------------- boot */
+
 const RENDERERS = {
   overview: renderOverview,
   messages: renderMessages,
@@ -963,3 +1096,23 @@ signOutButton.addEventListener('click', () => {
 });
 
 boot();
+
+
+/* The language switch lives in the top bar of every page. Changing it reloads,
+   which is simpler and more reliable than re-rendering a half-built view. */
+const TOPBAR_TEXT = [['h1', 'Signal Admin'], ['.brand .sub', 'operations · not visible to members']];
+
+(function mountLanguageSwitch() {
+  const host = document.getElementById('lang-switch');
+  if (host) host.append(languageSwitch());
+  // The masthead is static HTML, so it is translated here rather than being
+  // duplicated per language in the template.
+  for (const [selector, english] of TOPBAR_TEXT) {
+    const node = document.querySelector(selector);
+    if (node) node.textContent = t(english);
+  }
+  const signOut = document.getElementById('sign-out');
+  if (signOut) signOut.textContent = t('Sign out');
+  const memberLink = document.querySelector('a.status-pill[href="/dashboard"]');
+  if (memberLink) memberLink.textContent = t('Member dashboard →');
+})();

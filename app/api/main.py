@@ -16,6 +16,7 @@ from app import __version__, setup_state
 from app.api.routes_admin import router as admin_router
 from app.api.routes_compat import router as compat_router
 from app.api.routes_public import router as public_router
+from app.api.routes_settings import router as settings_router
 from app.api.routes_setup import router as setup_router
 from app.config import settings
 from app.db.session import init_db
@@ -62,6 +63,7 @@ def create_app(*, init_database: bool = True) -> FastAPI:
     app.include_router(public_router)
     app.include_router(compat_router)
     app.include_router(admin_router)
+    app.include_router(settings_router)
 
     static_dir = os.path.join(WEB_DIR, "static")
     if os.path.isdir(static_dir):

@@ -231,3 +231,26 @@ async def test_setting_breakeven_alone_publishes_nothing(session, by_message):
 async def test_the_day_summary_is_not_read_as_a_result(session, by_message):
     """"Today 4/4 winning setup" is about the day, not this trade."""
     assert parse_outcome("Today 4/4 winning setup. Good job everyone").is_empty
+
+
+async def test_seventy_pips_reads_as_seven_hundred_points(session, by_message, monkeypatch):
+    """The unit members recognise from their own terminal.
+
+    conftest pins POINT_SIZE=1.0 for the engine tests; the shipped default is
+    0.01, the MT4/MT5 point for a two-decimal gold quote. At that unit the
+    desk's "+70 Pips" — a $7.00 move — reads as +700.
+    """
+    monkeypatch.setattr(settings, "point_size", 0.01)
+
+    created = await post(session, 70700, GARY_SIGNAL)
+    await post(session, 70701, GARY_RESULT, reply_to=70700)
+    assert created.signal.profit_points == 700.0
+
+
+def test_the_shipped_default_unit_is_the_gold_point(tmp_path, monkeypatch):
+    from app.config import Settings
+
+    monkeypatch.delenv("POINT_SIZE", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    assert Settings(_env_file=str(env_file)).point_size == 0.01

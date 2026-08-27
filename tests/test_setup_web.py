@@ -440,7 +440,7 @@ def test_a_half_filled_env_does_not_crash_the_settings(tmp_path, monkeypatch):
     assert settings.telegram_api_id == 0
     assert settings.api_port == 8000
     assert settings.dry_run is False
-    assert settings.point_size == 1.0
+    assert settings.point_size == 0.01
     # Text settings keep the empty answer rather than reverting to a default.
     assert settings.line_channel_access_token == ""
 

@@ -18,15 +18,16 @@ import {
   signClass,
   statusChip,
 } from './util.js';
+import { languageSwitch, t } from './i18n.js';
 
 const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'signals', label: 'Signals' },
-  { id: 'daily', label: 'Daily' },
-  { id: 'weekly', label: 'Weekly' },
-  { id: 'monthly', label: 'Monthly' },
-  { id: 'analytics', label: 'Analytics' },
-  { id: 'methodology', label: 'Methodology' },
+  { id: 'overview', label: t('Overview') },
+  { id: 'signals', label: t('Signals') },
+  { id: 'daily', label: t('Daily') },
+  { id: 'weekly', label: t('Weekly') },
+  { id: 'monthly', label: t('Monthly') },
+  { id: 'analytics', label: t('Analytics') },
+  { id: 'methodology', label: t('Methodology') },
 ];
 
 const state = {
@@ -113,9 +114,9 @@ function rangePicker(onChange) {
     },
     [
       ...RANGES.map(([value, label]) =>
-        el('option', { value, text: label, selected: state.range === value })
+        el('option', { value, text: t(label), selected: state.range === value })
       ),
-      el('option', { value: 'custom', text: 'Custom range…', selected: state.range === 'custom' }),
+      el('option', { value: 'custom', text: t('Custom range…'), selected: state.range === 'custom' }),
     ]
   );
 
@@ -140,7 +141,7 @@ function rangePicker(onChange) {
         onChange();
       },
     });
-    wrap.append(from, el('span', { class: 'faint small', text: 'to' }), to);
+    wrap.append(from, el('span', { class: 'faint small', text: t('to') }), to);
   }
   return wrap;
 }
@@ -168,10 +169,10 @@ async function renderOverview() {
   root.append(
     el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:16px' }, [
       el('div', { class: 'stack' }, [
-        el('div', { style: 'font-size:15px;font-weight:600', text: 'Performance summary' }),
+        el('div', { style: 'font-size:15px;font-weight:600', text: t('Performance summary') }),
         el('div', {
           class: 'small faint',
-          text: `All figures in points · times in ${overview.timezone}`,
+          text: t('All figures in points · times in {tz}', { tz: overview.timezone }),
         }),
       ]),
       rangePicker(render),
@@ -180,25 +181,30 @@ async function renderOverview() {
 
   root.append(
     el('div', { class: 'cards' }, [
-      card('Total Signals', String(overview.total_signals), {
-        hint: `${overview.decided_signals} decided · ${overview.pending} open`,
+      card(t('Total Signals'), String(overview.total_signals), {
+        hint: t('{decided} decided · {open} open', {
+          decided: overview.decided_signals,
+          open: overview.pending,
+        }),
       }),
-      card('Win Rate', percent(overview.win_rate), {
-        hint: overview.decided_signals ? `${overview.wins}W / ${overview.losses}L` : 'no decided signals yet',
+      card(t('Win Rate'), percent(overview.win_rate), {
+        hint: overview.decided_signals
+          ? t('{w}W / {l}L', { w: overview.wins, l: overview.losses })
+          : t('no decided signals yet'),
       }),
-      card('Total P/L', points(overview.total_pl_points), {
+      card(t('Total P/L'), points(overview.total_pl_points), {
         tone: signClass(overview.total_pl_points),
-        unit: 'Points',
+        unit: t('Points'),
       }),
-      card('Wins', String(overview.wins), { tone: overview.wins ? 'pos' : '' }),
-      card('Losses', String(overview.losses), { tone: overview.losses ? 'neg' : '' }),
-      card('Profit Factor', overview.profit_factor === null ? '—' : overview.profit_factor.toFixed(2), {
-        hint: 'gross profit / gross loss',
+      card(t('Wins'), String(overview.wins), { tone: overview.wins ? 'pos' : '' }),
+      card(t('Losses'), String(overview.losses), { tone: overview.losses ? 'neg' : '' }),
+      card(t('Profit Factor'), overview.profit_factor === null ? '—' : overview.profit_factor.toFixed(2), {
+        hint: t('gross profit / gross loss'),
       }),
-      card('Max Drawdown', points(overview.max_drawdown_points), {
+      card(t('Max Drawdown'), points(overview.max_drawdown_points), {
         tone: overview.max_drawdown_points < 0 ? 'neg' : '',
-        unit: 'Points',
-        hint: 'largest peak-to-trough drop',
+        unit: t('Points'),
+        hint: t('largest peak-to-trough drop'),
       }),
     ])
   );
@@ -209,8 +215,15 @@ async function renderOverview() {
         el('div', { class: 'panel-body' }, [
           el('div', { class: 'notice' }, [
             el('div', {}, [
-              el('strong', { text: 'Not included in the win rate: ' }),
-              `${overview.pending} still open, ${overview.ambiguous} ambiguous (take profit and stop loss in the same candle), ${overview.cancelled} never filled. They stay listed under Signals.`,
+              el('strong', { text: t('Not included in the win rate: ') }),
+              t(
+                '{open} still open, {ambiguous} ambiguous (take profit and stop loss in the same candle), {cancelled} never filled. They stay listed under Signals.',
+                {
+                  open: overview.pending,
+                  ambiguous: overview.ambiguous,
+                  cancelled: overview.cancelled,
+                }
+              ),
             ]),
           ]),
         ]),
@@ -219,22 +232,22 @@ async function renderOverview() {
   }
 
   root.append(
-    panel('Cumulative P/L', [
+    panel(t('Cumulative P/L'), [
       analytics.equity_curve.length
         ? el('div', {}, [
             chartHost((width, height) => equityChart(analytics.equity_curve, { width, height }), { height: 220 }),
             legend([
-              { color: 'var(--green)', label: 'Cumulative points' },
-              { color: 'var(--text-faint)', label: 'Break-even' },
+              { color: 'var(--green)', label: t('Cumulative points') },
+              { color: 'var(--text-faint)', label: t('Break-even') },
             ]),
           ])
-        : emptyState('No decided signals in this range yet.'),
+        : emptyState(t('No decided signals in this range yet.')),
     ])
   );
 
   const recent = daily.items.slice(0, 14).reverse();
   root.append(
-    panel('Daily P/L (last 14 days with signals)', [
+    panel(t('Daily P/L (last 14 days with signals)'), [
       recent.length
         ? chartHost(
             (width, height) =>
@@ -244,34 +257,34 @@ async function renderOverview() {
               }),
             { height: 200 }
           )
-        : emptyState('No daily data yet.'),
+        : emptyState(t('No daily data yet.')),
     ])
   );
 
   const secondary = el('div', { class: 'cards', style: 'margin-top:20px' }, [
-    card('Average Win', points(overview.avg_win_points), { tone: 'pos', unit: 'Points' }),
-    card('Average Loss', points(overview.avg_loss_points), { tone: 'neg', unit: 'Points' }),
-    card('Expectancy', points(overview.expectancy_points), {
+    card(t('Average Win'), points(overview.avg_win_points), { tone: 'pos', unit: 'Points' }),
+    card(t('Average Loss'), points(overview.avg_loss_points), { tone: 'neg', unit: 'Points' }),
+    card(t('Expectancy'), points(overview.expectancy_points), {
       tone: signClass(overview.expectancy_points),
-      unit: 'Points',
+      unit: t('Points'),
       hint: 'average points per decided signal',
     }),
-    card('Best / Worst', `${points(overview.best_points)} / ${points(overview.worst_points)}`),
-    card('Longest Win Streak', String(overview.longest_win_streak)),
-    card('Longest Loss Streak', String(overview.longest_loss_streak)),
-    card('Avg Risk', points(overview.avg_risk_points, { signed: false }), { unit: 'Points' }),
-    card('Avg Reward', points(overview.avg_reward_points, { signed: false }), { unit: 'Points' }),
-    card('Risk : Reward', overview.rr_display || '—', { hint: 'from the posted entry, SL and TP1' }),
+    card(t('Best / Worst'), `${points(overview.best_points)} / ${points(overview.worst_points)}`),
+    card(t('Longest Win Streak'), String(overview.longest_win_streak)),
+    card(t('Longest Loss Streak'), String(overview.longest_loss_streak)),
+    card(t('Avg Risk'), points(overview.avg_risk_points, { signed: false }), { unit: 'Points' }),
+    card(t('Avg Reward'), points(overview.avg_reward_points, { signed: false }), { unit: 'Points' }),
+    card(t('Risk : Reward'), overview.rr_display || '—', { hint: 'from the posted entry, SL and TP1' }),
   ]);
   root.append(secondary);
 
   root.append(
-    panel('How far trades ran', [
+    panel(t('How far trades ran'), [
       el('div', { class: 'cards' }, [
-        card('TP1 Hit', String(overview.tp1_hit ?? 0), { tone: 'pos' }),
-        card('TP2 Hit', String(overview.tp2_hit ?? 0), { tone: 'pos' }),
-        card('TP3 Hit', String(overview.tp3_hit ?? 0), { tone: 'pos' }),
-        card('SL Hit', String(overview.sl_hit ?? 0), { tone: 'neg' }),
+        card(t('TP1 Hit'), String(overview.tp1_hit ?? 0), { tone: 'pos' }),
+        card(t('TP2 Hit'), String(overview.tp2_hit ?? 0), { tone: 'pos' }),
+        card(t('TP3 Hit'), String(overview.tp3_hit ?? 0), { tone: 'pos' }),
+        card(t('SL Hit'), String(overview.sl_hit ?? 0), { tone: 'neg' }),
       ]),
       el('div', {
         class: 'panel-note',
@@ -307,10 +320,8 @@ async function selfReportedBanner() {
   if (_methodologyCache.result_source !== 'message') return null;
 
   return el('div', { class: 'notice warn', style: 'margin: 16px 0' }, [
-    el('strong', { text: 'These results are reported by the signal provider. ' }),
-    'Each outcome below is taken from what the provider announced about its own trade — a message ' +
-      'such as "90 Pips! Can secure as TP2" — and has not been checked against price history. ' +
-      'They reflect what was posted in the group, not an independent measurement.',
+    el('strong', { text: t('These results are reported by the signal provider. ') }),
+    t('Each outcome below is taken from what the provider announced about its own trade — a message such as "90 Pips! Can secure as TP2" — and has not been checked against price history. They reflect what was posted in the group, not an independent measurement.'),
   ]);
 }
 
@@ -318,7 +329,7 @@ function disclaimerPanel() {
   return el('div', { class: 'panel', style: 'margin-top:24px' }, [
     el('div', { class: 'panel-body' }, [
       el('div', { class: 'small faint', style: 'line-height:1.6' }, [
-        el('strong', { text: 'Risk disclaimer. ' }),
+        el('strong', { text: t('Risk disclaimer. ') }),
         DISCLAIMER,
       ]),
     ]),
@@ -399,15 +410,15 @@ async function renderSignals() {
   const table = el('table', {}, [
     el('thead', {}, [
       el('tr', {}, [
-        el('th', { text: 'Time' }),
-        el('th', { text: 'Signal' }),
-        el('th', { class: 'right', text: 'Entry' }),
-        el('th', { class: 'right', text: 'SL' }),
-        el('th', { class: 'right', text: 'TP1' }),
-        el('th', { class: 'right', text: 'TP2' }),
-        el('th', { text: 'Status' }),
-        el('th', { text: 'Result' }),
-        el('th', { class: 'right', text: 'P/L' }),
+        el('th', { text: t('Time') }),
+        el('th', { text: t('Signal') }),
+        el('th', { class: 'right', text: t('Entry') }),
+        el('th', { class: 'right', text: t('SL') }),
+        el('th', { class: 'right', text: t('TP1') }),
+        el('th', { class: 'right', text: t('TP2') }),
+        el('th', { text: t('Status') }),
+        el('th', { text: t('Result') }),
+        el('th', { class: 'right', text: t('P/L') }),
       ]),
     ]),
     el(
@@ -423,7 +434,7 @@ async function renderSignals() {
               el('div', { class: 'row', style: 'gap:8px' }, [
                 directionChip(signal.direction),
                 el('span', { class: 'muted small', text: signal.symbol || '—' }),
-                signal.is_complete ? null : el('span', { class: 'chip neutral', text: 'INCOMPLETE' }),
+                signal.is_complete ? null : el('span', { class: 'chip neutral', text: t('INCOMPLETE') }),
               ]),
             ]),
             el('td', { class: 'right num', text: price(signal.entry) }),
@@ -446,18 +457,18 @@ async function renderSignals() {
   root.append(
     el('div', { class: 'panel' }, [
       el('div', { class: 'panel-head' }, [
-        el('h2', { text: 'Signals' }),
+        el('h2', { text: t('Signals') }),
         el('span', { class: 'panel-note', text: `${data.total} total` }),
         filters,
       ]),
       data.items.length
         ? el('div', { class: 'table-wrap' }, [table])
-        : emptyState('No signals match this filter yet.'),
+        : emptyState(t('No signals match this filter yet.')),
       el('div', { class: 'pager' }, [
         el('span', { class: 'faint small', text: `Page ${state.signalPage + 1} of ${pages}` }),
         el('button', {
           class: 'btn',
-          text: 'Previous',
+          text: t('Previous'),
           disabled: state.signalPage === 0,
           onclick: () => {
             state.signalPage -= 1;
@@ -466,7 +477,7 @@ async function renderSignals() {
         }),
         el('button', {
           class: 'btn',
-          text: 'Next',
+          text: t('Next'),
           disabled: state.signalPage >= pages - 1,
           onclick: () => {
             state.signalPage += 1;
@@ -501,7 +512,7 @@ async function renderSignalDetail() {
 
   root.append(
     el('div', { class: 'row', style: 'margin-bottom:16px' }, [
-      el('button', { class: 'btn', text: '← Back to signals', onclick: () => go('#/signals') }),
+      el('button', { class: 'btn', text: t('← Back to signals'), onclick: () => go('#/signals') }),
     ])
   );
 
@@ -518,28 +529,28 @@ async function renderSignalDetail() {
       ]),
       el('div', { class: 'panel-body' }, [
         el('div', { class: 'detail-grid' }, [
-          kv('Entry', price(signal.entry)),
-          kv('Stop Loss', price(signal.sl)),
-          kv('Take Profit 1', price(signal.tp1)),
-          kv('Take Profit 2', price(signal.tp2)),
-          kv('Take Profit 3', price(signal.tp3)),
-          kv('Posted', dateTime(signal.signal_time)),
-          kv('Entry filled', dateTime(signal.entry_filled_at)),
-          kv('Resolved', dateTime(signal.resolved_at)),
-          kv('Price source', signal.price_source || '—'),
-          kv('Risk', signal.risk_points === null ? '—' : `${points(signal.risk_points, { signed: false })} pts`),
-          kv('Reward', signal.reward_points === null ? '—' : `${points(signal.reward_points, { signed: false })} pts`),
-          kv('Risk : Reward', signal.rr_display || '—'),
+          kv(t('Entry'), price(signal.entry)),
+          kv(t('Stop Loss'), price(signal.sl)),
+          kv(t('Take Profit 1'), price(signal.tp1)),
+          kv(t('Take Profit 2'), price(signal.tp2)),
+          kv(t('Take Profit 3'), price(signal.tp3)),
+          kv(t('Posted'), dateTime(signal.signal_time)),
+          kv(t('Entry filled'), dateTime(signal.entry_filled_at)),
+          kv(t('Resolved'), dateTime(signal.resolved_at)),
+          kv(t('Price source'), signal.price_source || '—'),
+          kv(t('Risk'), signal.risk_points === null ? '—' : `${points(signal.risk_points, { signed: false })} pts`),
+          kv(t('Reward'), signal.reward_points === null ? '—' : `${points(signal.reward_points, { signed: false })} pts`),
+          kv(t('Risk : Reward'), signal.rr_display || '—'),
         ]),
         el('div', { class: 'detail-grid', style: 'margin-top:12px' }, [
-          kv('Signal ID', signal.signal_id),
-          kv('Telegram message ID', String(signal.telegram_message_id)),
-          kv('Telegram chat ID', String(signal.telegram_chat_id)),
-          kv('Version', `v${signal.source_version}`),
+          kv(t('Signal ID'), signal.signal_id),
+          kv(t('Telegram message ID'), String(signal.telegram_message_id)),
+          kv(t('Telegram chat ID'), String(signal.telegram_chat_id)),
+          kv(t('Version'), `v${signal.source_version}`),
         ]),
         signal.note
           ? el('div', { class: 'notice warn', style: 'margin-top:16px' }, [
-              el('div', {}, [el('strong', { text: 'Note: ' }), signal.note]),
+              el('div', {}, [el('strong', { text: t('Note: ') }), signal.note]),
             ])
           : null,
         signal.manual_override
@@ -585,18 +596,18 @@ async function renderSignalDetail() {
   const parses = signal.parse_history.filter((entry) => entry.parsed);
   if (parses.length > 1) {
     root.append(
-      panel('How each version was read', [
+      panel(t('How each version was read'), [
         el('div', { class: 'table-wrap' }, [
           el('table', {}, [
             el('thead', {}, [
               el('tr', {}, [
-                el('th', { text: 'Version' }),
-                el('th', { text: 'Direction' }),
-                el('th', { class: 'right', text: 'Entry' }),
-                el('th', { class: 'right', text: 'SL' }),
-                el('th', { class: 'right', text: 'TP1' }),
-                el('th', { class: 'right', text: 'TP2' }),
-                el('th', { text: 'Complete' }),
+                el('th', { text: t('Version') }),
+                el('th', { text: t('Direction') }),
+                el('th', { class: 'right', text: t('Entry') }),
+                el('th', { class: 'right', text: t('SL') }),
+                el('th', { class: 'right', text: t('TP1') }),
+                el('th', { class: 'right', text: t('TP2') }),
+                el('th', { text: t('Complete') }),
               ]),
             ]),
             el(
@@ -640,7 +651,7 @@ async function renderPerformance(granularity) {
   const rows = data.items;
 
   if (!rows.length) {
-    root.append(panel(`${cap(granularity)} performance`, [emptyState('No signals recorded yet.')]));
+    root.append(panel(`${cap(granularity)} performance`, [emptyState(t('No signals recorded yet.'))]));
     return;
   }
 
@@ -676,11 +687,11 @@ async function renderPerformance(granularity) {
           el('thead', {}, [
             el('tr', {}, [
               el('th', { text: granularity === 'monthly' ? 'Month' : granularity === 'weekly' ? 'Week of' : 'Date' }),
-              el('th', { class: 'right', text: 'Signals' }),
-              el('th', { class: 'right', text: 'Wins' }),
-              el('th', { class: 'right', text: 'Losses' }),
-              el('th', { class: 'right', text: 'Win Rate' }),
-              el('th', { class: 'right', text: 'P/L' }),
+              el('th', { class: 'right', text: t('Signals') }),
+              el('th', { class: 'right', text: t('Wins') }),
+              el('th', { class: 'right', text: t('Losses') }),
+              el('th', { class: 'right', text: t('Win Rate') }),
+              el('th', { class: 'right', text: t('P/L') }),
             ]),
           ]),
           el(
@@ -699,7 +710,7 @@ async function renderPerformance(granularity) {
           ),
           el('tfoot', {}, [
             el('tr', {}, [
-              el('td', { class: 'muted', text: 'Total' }),
+              el('td', { class: 'muted', text: t('Total') }),
               el('td', { class: 'right num', text: String(totals.signals) }),
               el('td', { class: 'right num pos', text: String(totals.wins) }),
               el('td', { class: 'right num neg', text: String(totals.losses) }),
@@ -738,7 +749,7 @@ async function renderAnalytics() {
     }));
 
   root.append(
-    panel('By direction', [
+    panel(t('By direction'), [
       data.by_direction.length
         ? barRows(
             data.by_direction.map((row) => ({
@@ -748,25 +759,25 @@ async function renderAnalytics() {
               tone: row.pl_points >= 0 ? 'var(--green)' : 'var(--red)',
             }))
           )
-        : emptyState('No data yet.'),
+        : emptyState(t('No data yet.')),
     ])
   );
 
   root.append(
-    panel('Win rate by hour of day', [
-      data.by_hour.length ? barRows(winRateRows(data.by_hour, 'hour')) : emptyState('No data yet.'),
-      el('div', { class: 'panel-note', style: 'margin-top:10px', text: 'Local time. Hours with no signals are omitted.' }),
+    panel(t('Win rate by hour of day'), [
+      data.by_hour.length ? barRows(winRateRows(data.by_hour, 'hour')) : emptyState(t('No data yet.')),
+      el('div', { class: 'panel-note', style: 'margin-top:10px', text: t('Local time. Hours with no signals are omitted.') }),
     ])
   );
 
   root.append(
-    panel('Win rate by weekday', [
-      data.by_weekday.length ? barRows(winRateRows(data.by_weekday, 'weekday')) : emptyState('No data yet.'),
+    panel(t('Win rate by weekday'), [
+      data.by_weekday.length ? barRows(winRateRows(data.by_weekday, 'weekday')) : emptyState(t('No data yet.')),
     ])
   );
 
   root.append(
-    panel('How far trades ran', [
+    panel(t('How far trades ran'), [
       data.tp_distribution.some((row) => row.count)
         ? barRows(
             data.tp_distribution.map((row) => ({
@@ -776,18 +787,18 @@ async function renderAnalytics() {
               tone: row.level === 'SL' ? 'var(--red)' : 'var(--green)',
             }))
           )
-        : emptyState('No decided signals yet.'),
+        : emptyState(t('No decided signals yet.')),
       el('div', {
         class: 'panel-note',
         style: 'margin-top:10px',
-        text: 'Take profits are a ladder: a signal that reached TP2 also counts under TP1.',
+        text: t('Take profits are a ladder: a signal that reached TP2 also counts under TP1.'),
       }),
     ])
   );
 
   if (data.by_symbol.length > 1) {
     root.append(
-      panel('By symbol', [
+      panel(t('By symbol'), [
         barRows(
           data.by_symbol.map((row) => ({
             label: row.symbol,
@@ -801,7 +812,7 @@ async function renderAnalytics() {
   }
 
   root.append(
-    panel('Distribution of results (points)', [
+    panel(t('Distribution of results (points)'), [
       data.points_distribution.length
         ? barRows(
             data.points_distribution.map((bucket) => ({
@@ -811,7 +822,7 @@ async function renderAnalytics() {
               tone: bucket.from >= 0 ? 'var(--green)' : 'var(--red)',
             }))
           )
-        : emptyState('No decided signals yet.'),
+        : emptyState(t('No decided signals yet.')),
     ])
   );
 }
@@ -823,33 +834,33 @@ async function renderMethodology() {
 
   root.append(
     el('div', { class: 'panel' }, [
-      el('div', { class: 'panel-head' }, [el('h2', { text: 'How these numbers are produced' })]),
+      el('div', { class: 'panel-head' }, [el('h2', { text: t('How these numbers are produced') })]),
       el('div', { class: 'panel-body prose' }, [
         el('p', {
           text:
             'This page exists so the performance figures can be checked rather than taken on trust. ' +
             'Every rule the system applies is listed here, including the ones that work against the numbers.',
         }),
-        el('h3', { text: 'Rules' }),
+        el('h3', { text: t('Rules') }),
         el(
           'ol',
           {},
           data.rules.map((rule) => el('li', { text: rule }))
         ),
-        el('h3', { text: 'Settings in force' }),
+        el('h3', { text: t('Settings in force') }),
         el('div', { class: 'detail-grid' }, [
-          kv('Unit', 'Points'),
-          kv('Point size', String(data.point_size)),
-          kv('Timezone', data.timezone),
-          kv('Result source', data.result_source === 'message' ? 'The provider’s own reports' : 'Price history'),
-          kv('Price source', data.price_source),
-          kv('Price timeframe', data.price_timeframe),
-          kv('Same-candle rule', data.ambiguity_rule),
-          kv('Result mode', data.result_mode),
-          kv('Entry fill window', `${data.entry_fill_window_hours} h`),
-          kv('Signal expiry', `${data.signal_expiry_hours} h`),
+          kv(t('Unit'), 'Points'),
+          kv(t('Point size'), String(data.point_size)),
+          kv(t('Timezone'), data.timezone),
+          kv(t('Result source'), data.result_source === 'message' ? 'The provider’s own reports' : 'Price history'),
+          kv(t('Price source'), data.price_source),
+          kv(t('Price timeframe'), data.price_timeframe),
+          kv(t('Same-candle rule'), data.ambiguity_rule),
+          kv(t('Result mode'), data.result_mode),
+          kv(t('Entry fill window'), `${data.entry_fill_window_hours} h`),
+          kv(t('Signal expiry'), `${data.signal_expiry_hours} h`),
         ]),
-        el('h3', { text: 'Message parsers' }),
+        el('h3', { text: t('Message parsers') }),
         el(
           'ul',
           {},
@@ -861,7 +872,7 @@ async function renderMethodology() {
             ])
           )
         ),
-        el('h3', { text: 'What is not shown' }),
+        el('h3', { text: t('What is not shown') }),
         el('p', {
           text:
             'No money amounts are reported. Lot size, contract size, spread, commission, swap and slippage are ' +
@@ -873,17 +884,17 @@ async function renderMethodology() {
                 'a price provider is connected, at which point they are evaluated against historical prices.',
             ])
           : null,
-        el('h3', { text: 'What cannot happen' }),
+        el('h3', { text: t('What cannot happen') }),
         el('ul', {}, [
-          el('li', { text: 'A losing signal cannot be deleted or hidden; there is no delete route.' }),
-          el('li', { text: 'Entry, stop and target cannot be rewritten after the fact to improve a result.' }),
-          el('li', { text: 'Statistics cannot be typed in by an administrator — they are computed from the signals table.' }),
-          el('li', { text: 'Edit history cannot be removed; every version of every message is kept.' }),
+          el('li', { text: t('A losing signal cannot be deleted or hidden; there is no delete route.') }),
+          el('li', { text: t('Entry, stop and target cannot be rewritten after the fact to improve a result.') }),
+          el('li', { text: t('Statistics cannot be typed in by an administrator — they are computed from the signals table.') }),
+          el('li', { text: t('Edit history cannot be removed; every version of every message is kept.') }),
           el('li', {
-            text: 'A correction made by hand is written to the audit log with the old value, the new value, who changed it, when, and why.',
+            text: t('A correction made by hand is written to the audit log with the old value, the new value, who changed it, when, and why.'),
           }),
         ]),
-        el('h3', { text: 'Risk disclaimer' }),
+        el('h3', { text: t('Risk disclaimer') }),
         el('p', { text: data.disclaimer || DISCLAIMER }),
       ]),
     ])
@@ -984,3 +995,23 @@ async function render() {
 window.addEventListener('hashchange', render);
 render();
 updateStatus().then(watchForChanges);
+
+
+/* The language switch lives in the top bar of every page. Changing it reloads,
+   which is simpler and more reliable than re-rendering a half-built view. */
+const TOPBAR_TEXT = [['h1', 'Signal Performance'], ['#brand-sub', 'Gold signals · results in points']];
+
+(function mountLanguageSwitch() {
+  const host = document.getElementById('lang-switch');
+  if (host) host.append(languageSwitch());
+  // The masthead is static HTML, so it is translated here rather than being
+  // duplicated per language in the template.
+  for (const [selector, english] of TOPBAR_TEXT) {
+    const node = document.querySelector(selector);
+    if (node) node.textContent = t(english);
+  }
+  const signOut = document.getElementById('sign-out');
+  if (signOut) signOut.textContent = t('Sign out');
+  const memberLink = document.querySelector('a.status-pill[href="/dashboard"]');
+  if (memberLink) memberLink.textContent = t('Member dashboard →');
+})();
