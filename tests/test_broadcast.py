@@ -211,3 +211,56 @@ async def test_upgrading_twice_changes_nothing(tmp_path):
         assert _add_missing_columns(conn) == []
         assert _add_missing_columns(conn) == []
     engine.dispose()
+
+
+# ------------------------------------- the preview must equal what is pushed
+async def test_the_preview_text_is_the_text_the_worker_pushes(session):
+    """The archive is a simulation, so it has to be byte-identical.
+
+    Both paths call render_line_text, and this pins that: if the worker ever
+    builds its payload differently, the preview would quietly start lying about
+    what members receive, which is the one thing it exists to get right.
+    """
+    from app.api.broadcast import _broadcast_page
+    from app.line.queue_worker import LineQueueWorker
+    from app.processor.message_processor import pending_deliveries
+
+    class CapturingLine:
+        def __init__(self):
+            self.pushed = []
+
+        async def push_text(self, text, *, idempotency_key=None):
+            from app.line.client import LineSendResult
+
+            self.pushed.append(text)
+            return LineSendResult(ok=True, message_id=f"line-{len(self.pushed)}")
+
+    await post(session, 61000, "Gold Buy Now @ 4601 Sl: 4590 TP: 50/100Pips")
+    await post(session, 61000, "Gold Buy Now @ 4602 Sl: 4592 TP: 50/100Pips", is_edit=True)
+    await post(session, 61001, "[photo]\nGold Sell Now @ 4610")
+    await session.commit()
+
+    preview = [item["line_text"] for item in reversed((await _broadcast_page(session, limit=50, offset=0))["items"])]
+
+    line = CapturingLine()
+    worker = LineQueueWorker()
+    queued = await pending_deliveries(session, limit=50)
+    assert len(queued) == 3, "all three should be waiting to go to LINE"
+    for message in queued:
+        await worker._deliver(line, message, None)
+
+    assert line.pushed == preview
+    # And the specifics the operator relies on:
+    assert preview[1].startswith("EDITED\n\n")
+    assert preview[2].startswith("[photo]\n")
+
+
+async def test_a_photo_reaches_line_as_text_not_as_an_image(session):
+    """Everything is pushed as {"type": "text"}; the picture never travels."""
+    from app.api.broadcast import _broadcast_page
+
+    await post(session, 61100, "[photo]")
+    await session.commit()
+
+    entry = (await _broadcast_page(session, limit=10, offset=0))["items"][0]
+    assert entry["line_text"] == "[photo]"

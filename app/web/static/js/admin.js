@@ -364,9 +364,12 @@ function linePreview(items, botName, groupLabel) {
       : null,
     el('div', { class: 'line-chat' }, chat),
     el('p', { class: 'line-note small faint' }, [
-      'A mock-up of the LINE group, oldest first. Bubbles show exactly the text that was pushed, the ',
+      'A mock-up of the LINE group, oldest first. Each bubble is the exact text the bridge pushes — the same ',
+      'string, character for character. Everything is sent as a text message, so a Telegram photo arrives as ',
+      el('code', { text: '[photo]' }),
+      ' and the picture itself does not travel. An edit arrives as a new message prefixed ',
       el('code', { text: 'EDITED' }),
-      ' prefix included — an edit arrives as a new message, it never replaces the one before it.',
+      '; it never replaces the one before it.',
     ]),
   ]);
 }
@@ -374,16 +377,18 @@ function linePreview(items, botName, groupLabel) {
 function lineBubble(item, botName, when, { quiet = false } = {}) {
   const undelivered = item.status !== 'SENT';
   const text = item.line_text || '';
-  const isEdit = item.is_edit;
 
-  // The EDITED marker is part of the delivered text, so it is shown inside the
-  // bubble where members see it — not lifted out into a badge.
-  const lines = [];
-  if (isEdit && text.startsWith('EDITED')) {
-    lines.push(el('span', { class: 'line-edited', text: 'EDITED' }));
-    lines.push(document.createTextNode(text.replace(/^EDITED\n*/, '')));
+  // Everything LINE receives is a text message: the bridge pushes
+  // {"type":"text"}, never an image. A Telegram photo arrives as the literal
+  // string "[photo]" in front of its caption, so that is what the bubble
+  // shows. Drawing a picture frame here would be a comfortable lie — members
+  // do not get the chart.
+  const body = [];
+  if (item.is_edit && text.startsWith('EDITED')) {
+    body.push(el('span', { class: 'line-edited', text: 'EDITED' }));
+    body.push(document.createTextNode(text.replace(/^EDITED\n*/, '')));
   } else {
-    lines.push(document.createTextNode(text));
+    body.push(document.createTextNode(text));
   }
 
   const meta = el('div', { class: 'line-meta' }, [
@@ -391,20 +396,27 @@ function lineBubble(item, botName, when, { quiet = false } = {}) {
     el('span', { class: 'line-time', text: when ? dateTime(when, { withDate: false }) : '' }),
   ]);
 
+  const notes = [];
+  if (item.has_media) {
+    notes.push(
+      el('span', { class: 'line-notsent', text: 'the image itself is not forwarded — only this text' })
+    );
+  }
+  if (undelivered && !quiet) {
+    notes.push(el('span', { class: 'line-notsent', text: statusExplanation(item) }));
+  }
+
   return el('div', { class: 'line-row' }, [
     el('div', { class: 'line-avatar', text: botName.slice(0, 1).toUpperCase() }),
     el('div', { class: 'line-stack' }, [
       el('span', { class: 'line-sender', text: botName }),
       el('div', { class: 'line-bubble-wrap' }, [
         el('div', { class: 'line-bubble' }, [
-          item.has_media ? el('div', { class: 'line-media', text: '🖼  image / file' }) : null,
-          text ? el('div', { class: 'line-text' }, lines) : null,
+          text ? el('div', { class: 'line-text' }, body) : el('div', { class: 'line-empty', text: 'nothing to send — this message produces no LINE post' }),
         ]),
         meta,
       ]),
-      undelivered && !quiet
-        ? el('span', { class: 'line-notsent', text: statusExplanation(item) })
-        : null,
+      ...notes,
     ]),
   ]);
 }
