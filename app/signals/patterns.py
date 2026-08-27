@@ -54,8 +54,16 @@ DIRECTION_RE = re.compile(
 )
 
 # ------------------------------------------------------------------ level tags
+# Some desks quote targets as a distance rather than a price: "TP: 50/100Pips"
+# means 50 and 100 pips away from entry, not the prices 50 and 100. Without
+# this the numbers are read as absolute levels and the result is nonsense —
+# gold "taking profit" at 100 when it entered at 4601.
+PIP_UNIT = r"(?:PIPS?|POINTS?|PTS?)"
+_PIP_SUFFIX = r"(?P<unit>\s*" + PIP_UNIT + r"\b)?"
+
 STOP_LOSS_RE = re.compile(
-    r"(?:S\s*[/.\-]?\s*L|STOP\s*-?\s*LOSS|STOPLOSS|STOP)\b\s*(?:@|AT|IS|:|=|-)?\s*(?P<value>" + NUMBER + r")",
+    r"(?:S\s*[/.\-]?\s*L|STOP\s*-?\s*LOSS|STOPLOSS|STOP)\b\s*(?:@|AT|IS|:|=|-)?\s*(?P<value>" + NUMBER + r")"
+    + _PIP_SUFFIX,
     re.IGNORECASE,
 )
 
@@ -64,7 +72,7 @@ STOP_LOSS_RE = re.compile(
 TAKE_PROFIT_RE = re.compile(
     # The index digit must stand alone: in "TP 3330" the leading 3 is a price.
     r"(?:T\s*[/.\-]?\s*P|TAKE\s*-?\s*PROFIT|TARGET)\s*(?P<index>[1-9](?!\d))?\s*(?:@|AT|IS|:|=|-)?\s*"
-    r"(?P<values>(?:" + NUMBER + r")(?:\s*[,/&]?\s*(?:" + NUMBER + r"))*)",
+    r"(?P<values>(?:" + NUMBER + r")(?:\s*[,/&]?\s*(?:" + NUMBER + r"))*)" + _PIP_SUFFIX,
     re.IGNORECASE,
 )
 

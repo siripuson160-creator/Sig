@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     price_csv_path: str = "./data/prices"
     # 1 "point" of price movement. Gold quoted as 3340.00 -> 1 point = 1.0.
     point_size: float = 1.0
+    # What one "pip" is worth in price, used only to read targets quoted as a
+    # distance ("TP: 50/100Pips") rather than a price. For XAUUSD most desks
+    # call $0.10 a pip, so "50 pips" from 4601 is 4606. Check this against your
+    # own source's wording before trusting the numbers: if they call a $1 move
+    # 100 pips, this is right; if they call it 10 pips, set 1.0.
+    pip_size: float = 0.1
 
     # --------------------------------------------------------------- evaluation
     ambiguity_rule: AmbiguityRule = "SL_FIRST"

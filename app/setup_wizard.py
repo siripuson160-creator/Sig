@@ -215,6 +215,10 @@ PRICE_DRILLDOWN_TIMEFRAME={get('PRICE_DRILLDOWN_TIMEFRAME', '1m')}
 PRICE_API_KEY={get('PRICE_API_KEY', '')}
 PRICE_CSV_PATH={get('PRICE_CSV_PATH', './data/prices')}
 POINT_SIZE={get('POINT_SIZE', '1.0')}
+# Only used to read targets quoted as a distance ("TP: 50/100Pips").
+# 0.1 means the source calls a $1 move on gold 10 pips. If yours calls it
+# 100 pips, set 0.01; if it calls it 1 pip, set 1.0.
+PIP_SIZE={get('PIP_SIZE', '0.1')}
 
 # --------------------------------------------------------- evaluation
 # SL_FIRST (conservative) | TP_FIRST | AMBIGUOUS
