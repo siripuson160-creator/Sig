@@ -21,6 +21,7 @@ import sys
 
 import uvicorn
 
+from app import setup_state, units
 from app.config import settings
 from app.db.session import dispose_engine, init_db
 from app.engine.result_engine import ResultEngine
@@ -89,8 +90,6 @@ def _setup_mode_components(components: set[str]) -> set[str]:
     just the API keeps `/setup` reachable, which is exactly what an operator
     needs at that moment.
     """
-    from app import setup_state
-
     if setup_state.is_configured():
         return components
 
@@ -103,6 +102,9 @@ def _setup_mode_components(components: set[str]) -> set[str]:
 
 async def run(components: set[str]) -> int:
     configure_logging()
+    # Before anything reads a price or publishes a number: make sure a pip
+    # figure will be published the way the room that posted it counts.
+    units.check_on_start(setup_state.ENV_PATH)
     components = _setup_mode_components(components)
     if not components:
         log.error("nothing to run: this install is not configured and the api component is disabled")

@@ -900,6 +900,9 @@ async function renderSettings() {
         el('strong', { text: t('These are the live settings. ') }),
         t('Saving rewrites the settings file and restarts the service, so what is running is always what is on disk. Leave a secret blank to keep the stored value.'),
       ]),
+      // A units problem publishes numbers that are wrong by ten and still look
+      // right, so it is stated above the fields rather than left to be noticed.
+      ...(data.warnings || []).map((text) => el('div', { class: 'notice bad', text })),
       el('div', { class: 'settings-grid' }, sections),
       box,
       el('div', { class: 'setup-actions' }, [save, testLine]),

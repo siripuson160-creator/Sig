@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, setup_state
+from app import audit, setup_state, units
 from app.api.security import AdminDep
 from app.config import settings
 from app.db.models import AuditEvent
@@ -148,6 +148,9 @@ async def read_editable(identity: AdminDep) -> dict:
     return {
         "items": current_values(),
         "env_path": os.path.abspath(setup_state.ENV_PATH),
+        # A pair that publishes pip figures ten times off still looks credible,
+        # so it is said on the page where those two numbers are edited.
+        "warnings": [w for w in (units.convention_warning(),) if w],
         "note": "Saving rewrites the settings file and restarts the service, so what is "
         "running is always what is on disk. Leave a secret blank to keep the stored value.",
     }
