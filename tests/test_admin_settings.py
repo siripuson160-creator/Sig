@@ -150,8 +150,16 @@ def test_a_choice_outside_the_list_is_ignored(client, env_file):
 
 # ---------------------------------------------------------------- writing
 def test_saving_reports_only_what_actually_moved(client, env_file):
+    """Submitting a value that is already in force is not a change.
+
+    True whether it is in force because the file says so (LINE_GROUP_ID) or
+    because it is the default and the file is silent (PRICE_SYMBOL).
+    """
     body = save(client, {"LINE_GROUP_ID": "Cabc123", "PRICE_SYMBOL": "XAUUSD"}).json()
-    assert body["changed"] == ["PRICE_SYMBOL"]  # the group id was already that
+    assert body["changed"] == []
+
+    body = save(client, {"LINE_GROUP_ID": "Cabc123", "PRICE_SYMBOL": "EURUSD"}).json()
+    assert body["changed"] == ["PRICE_SYMBOL"]
 
 
 def test_the_env_stays_private(client, env_file):
@@ -220,3 +228,57 @@ def test_choosing_the_destination_is_editable(client, env_file):
 def test_an_unknown_destination_is_refused(client, env_file):
     save(client, {"DELIVERY_TARGET": "carrier-pigeon"})
     assert "DELIVERY_TARGET" not in read_env(str(env_file))
+
+
+# ------------------------------------------- the page must show what is running
+# A setting absent from the .env is not unset — it is running on its default.
+# Drawing it as blank or Off made the page a description of the file rather
+# than of the system, and saving then wrote that misreading back as fact.
+def test_a_default_that_is_not_in_the_file_is_still_shown(client, env_file):
+    """ADD_EDITED_PREFIX defaults to true and is usually absent from the .env."""
+    assert "ADD_EDITED_PREFIX" not in read_env(str(env_file))
+    rows = {row["key"]: row for row in routes_settings.current_values()}
+    assert rows["ADD_EDITED_PREFIX"]["value"] == "true"
+    assert rows["LINE_EDIT_PREFIX"]["value"] == "EDITED"
+
+
+def test_saving_an_unrelated_change_does_not_silently_flip_a_default(client, env_file):
+    """The bug this guards: edits quietly stopped being marked EDITED.
+
+    Changing a Telegram field reported ADD_EDITED_PREFIX as changed and wrote
+    false, because the page had drawn the absent default as Off.
+    """
+    body = save(client, {"TELEGRAM_SOURCE_CHAT_ID": "-1009998887776",
+                         "ADD_EDITED_PREFIX": "true",
+                         "LINE_EDIT_PREFIX": "EDITED"}).json()
+
+    assert body["changed"] == ["TELEGRAM_SOURCE_CHAT_ID"]
+    assert read_env(str(env_file)).get("ADD_EDITED_PREFIX") is None
+
+
+def test_turning_a_default_off_on_purpose_still_works(client, env_file):
+    """The guard must not make a real change invisible."""
+    body = save(client, {"ADD_EDITED_PREFIX": "false"}).json()
+    assert body["changed"] == ["ADD_EDITED_PREFIX"]
+    assert read_env(str(env_file))["ADD_EDITED_PREFIX"] == "false"
+
+
+def test_a_number_that_is_not_in_the_file_shows_what_is_running(client, env_file):
+    """The box must show the unit in force, or it invites the wrong edit."""
+    assert "PIP_SIZE" not in read_env(str(env_file))
+    rows = {row["key"]: row for row in routes_settings.current_values()}
+    # Compared as numbers: a value read straight from the environment keeps the
+    # operator's own spelling ("1.0"), which is right, and only the quantity
+    # has to match what is running.
+    assert float(rows["PIP_SIZE"]["value"]) == settings.pip_size
+    assert float(rows["POINT_SIZE"]["value"]) == settings.point_size
+
+
+def test_an_unconfigured_number_stays_blank_rather_than_showing_zero(client, env_file, monkeypatch):
+    """TELEGRAM_API_ID is 0 when unset; "0" in the box would be a lie."""
+    monkeypatch.setattr(settings, "telegram_api_id", 0)
+    monkeypatch.delenv("TELEGRAM_API_ID", raising=False)
+    env_file.write_text("ADMIN_PASSWORD=test-admin-key\n")
+    rows = {row["key"]: row for row in routes_settings.current_values()}
+    assert rows["TELEGRAM_API_ID"]["value"] == ""
+    assert rows["TELEGRAM_API_ID"]["is_set"] is False

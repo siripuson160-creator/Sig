@@ -268,8 +268,8 @@ const TH = {
   'The channel to post into, e.g. @mychannel. Only used when the target is telegram.':
     'แชนแนลที่จะส่งเข้าไป เช่น @mychannel ใช้เมื่อเลือกปลายทางเป็น telegram เท่านั้น',
   'From my.telegram.org → API development tools.': 'เอามาจาก my.telegram.org → API development tools',
-  'From the same page. Changing it needs a fresh sign-in.':
-    'จากหน้าเดียวกัน ถ้าเปลี่ยนต้องล็อกอิน Telegram ใหม่',
+  'From the same page. Changing it invalidates the login — re-run "python -m app.cli login" on the server afterwards.':
+    'จากหน้าเดียวกัน ถ้าเปลี่ยนค่านี้ การล็อกอินเดิมจะใช้ไม่ได้ ต้องรัน "python -m app.cli login" บนเซิร์ฟเวอร์ใหม่',
   'The group the signals are read from, e.g. -1001234567890.':
     'กลุ่มที่ระบบอ่านสัญญาณ เช่น -1001234567890',
   'Messaging API → Channel access token (long-lived).':

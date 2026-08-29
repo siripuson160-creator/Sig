@@ -915,7 +915,11 @@ const SETTING_HINTS = {
   DELIVERY_TARGET: 'Which app the messages are posted into.',
   TELEGRAM_TARGET_CHAT_ID: 'The channel to post into, e.g. @mychannel. Only used when the target is telegram.',
   TELEGRAM_API_ID: 'From my.telegram.org → API development tools.',
-  TELEGRAM_API_HASH: 'From the same page. Changing it needs a fresh sign-in.',
+  // Naming the command matters: changing the hash invalidates the stored
+  // session, and the sign-in cannot happen here — the code goes to the account
+  // owner's own device and is typed on the server, never through this page.
+  TELEGRAM_API_HASH:
+    'From the same page. Changing it invalidates the login — re-run "python -m app.cli login" on the server afterwards.',
   TELEGRAM_SOURCE_CHAT_ID: 'The group the signals are read from, e.g. -1001234567890.',
   LINE_CHANNEL_ACCESS_TOKEN: 'Messaging API → Channel access token (long-lived).',
   LINE_GROUP_ID: 'Starts with C for a group, R for a room, U for a person.',
