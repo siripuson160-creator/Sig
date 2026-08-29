@@ -1,7 +1,11 @@
-"""Outbox worker: pushes queued Telegram messages to the LINE group.
+"""Outbox worker: pushes queued Telegram messages to the destination chat.
 
 The queue is the ``telegram_messages`` table itself (status PENDING -> SENT),
 so delivery state survives a restart and nothing is sent twice.
+
+Which chat app that is — a LINE group or a Telegram channel — is a deployment
+choice (``DELIVERY_TARGET``). This module only knows it has a sender with a
+``push_message``; see ``app.delivery``.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from app import audit
 from app.config import settings
 from app.db.models import AuditEvent, ComponentStatus, DeliveryStatus, TelegramMessage, utcnow
 from app.db.session import session_scope
+from app.delivery import destination_label, get_sender
 from app.line.client import LineClient, LineConfigError, retry_key
 from app.processor.message_processor import pending_deliveries, render_line_text
 
@@ -41,12 +46,12 @@ class LineQueueWorker:
             await self._idle("dry run")
             return
         if not settings.line_enabled:
-            log.warning("LINE delivery disabled (LINE_ENABLED=false); messages will be stored only")
+            log.warning("delivery disabled (LINE_ENABLED=false); messages will be stored only")
             await self._idle("delivery disabled")
             return
 
-        async with LineClient() if self._client is None else _null_ctx(self._client) as client:
-            log.info("LINE queue worker started")
+        async with get_sender() if self._client is None else _null_ctx(self._client) as client:
+            log.info("delivery worker started (target=%s -> %s)", settings.delivery_target, destination_label())
             while not self._stop.is_set():
                 try:
                     sent = await self.drain_once(client)
@@ -106,13 +111,22 @@ class LineQueueWorker:
             return True
 
         message.send_attempts += 1
+        key = retry_key(message.chat_id, message.message_id, message.version)
         try:
-            result = await client.push_text(
-                text, idempotency_key=retry_key(message.chat_id, message.message_id, message.version)
-            )
-        except LineConfigError as exc:
+            # push_message lets a destination that can carry media fetch it;
+            # a text-only sender falls back to push_text itself.
+            send = getattr(client, "push_message", None)
+            if send is not None:
+                result = await send(message, text, idempotency_key=key)
+            else:
+                result = await client.push_text(text, idempotency_key=key)
+        except Exception as exc:  # configuration, not a delivery failure
+            from app.delivery.telegram_channel import TelegramConfigError
+
+            if not isinstance(exc, (LineConfigError, TelegramConfigError)):
+                raise
             if not self._paused_logged:
-                log.error("LINE not configured: %s — messages stay queued", exc)
+                log.error("destination not configured: %s — messages stay queued", exc)
                 self._paused_logged = True
             message.send_attempts -= 1  # configuration, not a delivery attempt
             return False
@@ -125,12 +139,12 @@ class LineQueueWorker:
             message.sent_at = utcnow()
             message.line_message_id = result.message_id
             message.last_error = None
-            log.info("LINE message sent: %s", message.line_message_id)
             log.info(
-                "delivered %s/%s v%s to LINE (%s)",
+                "delivered %s/%s v%s to %s (%s)",
                 message.chat_id,
                 message.message_id,
                 message.version,
+                destination_label(),
                 message.line_message_id,
             )
             if session is not None:

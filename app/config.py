@@ -21,6 +21,10 @@ ResultMode = Literal["BEST_TP", "FIRST_TOUCH"]
 #:   price   - measured against price history (independently verified)
 #:   message - what the source announced about its own trade (self-reported)
 ResultSource = Literal["price", "message"]
+#: Where forwarded messages are delivered.
+#:   line     - a LINE group, via the Messaging API
+#:   telegram - a Telegram channel, posted by the account already signed in
+DeliveryTarget = Literal["line", "telegram"]
 
 
 class Settings(BaseSettings):
@@ -51,8 +55,16 @@ class Settings(BaseSettings):
     telegram_source_chat_id: str = ""
     # Optional extra sources, comma separated. Usually left empty.
     telegram_extra_chat_ids: str = ""
+    # The channel messages are forwarded *into* when DELIVERY_TARGET=telegram.
+    # A @username, a t.me link, or the numeric -100… id. The signed-in account
+    # must be able to post there, so make it an admin of the channel.
+    telegram_target_chat_id: str = ""
 
     # --------------------------------------------------------------------- line
+    # Where forwarded messages go. Telegram needs no second token and carries
+    # the source's images; LINE is text only and needs a channel token.
+    delivery_target: DeliveryTarget = "line"
+
     line_channel_access_token: str = ""
     line_channel_secret: str = ""
     # Group id (Cxxxx), room id (Rxxxx) or user id (Uxxxx) to push to.
@@ -192,8 +204,20 @@ class Settings(BaseSettings):
 
     @property
     def line_delivery_enabled(self) -> bool:
-        """False in dry-run: everything is stored, nothing is pushed."""
+        """False in dry-run: everything is stored, nothing is pushed.
+
+        LINE_ENABLED is the historical name for the delivery switch and still
+        governs both destinations, so an install already using it to pause
+        delivery keeps working after switching to Telegram.
+        """
         return self.line_enabled and not self.dry_run
+
+    @property
+    def delivery_destination(self) -> str:
+        """The configured destination, whichever app it is in."""
+        if self.delivery_target == "telegram":
+            return self.telegram_target_chat_id.strip()
+        return self.line_destination
 
     @property
     def admin_secret(self) -> str:
