@@ -34,6 +34,8 @@ set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/siripuson160-creator/Sig.git}"
 BRANCH="${BRANCH:-main}"
+#: The one-liner, quoted back when a re-clone is the way out.
+RAW_INSTALL_URL="${RAW_INSTALL_URL:-https://raw.githubusercontent.com/siripuson160-creator/Sig/$BRANCH/scripts/install.sh}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/signal}"
 SERVICE_USER="${SERVICE_USER:-signal}"
 SERVICE_NAME="telegram-line-forwarder"
@@ -255,7 +257,15 @@ fetch_code() {
             | tar -C "$INSTALL_DIR" -xf -
         ok "copied into $INSTALL_DIR"
     elif [[ -n "$script_repo" ]]; then
-        ok "already running from $INSTALL_DIR"
+        # Running the copy that is already installed, and it has no .git to pull
+        # from. Nothing can be fetched, so say so rather than reporting success:
+        # an operator re-running the installer to pick up a fix would otherwise
+        # be told it worked and then wonder why the new page looks the same.
+        warn "no git checkout in $INSTALL_DIR — the code was NOT updated"
+        info "to pull the latest $BRANCH, re-clone once:"
+        info "  sudo mv $INSTALL_DIR/.env /root/signal.env.bak"
+        info "  sudo rm -rf $INSTALL_DIR && curl -fsSL $RAW_INSTALL_URL | sudo bash"
+        info "(or copy a fresh checkout in by hand; .env and data/ are yours to keep)"
     else
         info "cloning $REPO_URL ($BRANCH)"
         if ! repo_is_reachable; then

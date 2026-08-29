@@ -172,3 +172,51 @@ def test_settings_the_operator_needs_are_all_editable():
         "LINE_GROUP_ID",
         "DRY_RUN",
     } <= keys
+
+
+# ------------------------------------------------- the page shows them all
+def _settings_groups() -> dict[str, list[str]]:
+    """The GROUPS array out of admin.js, without a JavaScript engine.
+
+    Crude, but it is the only way to check from here that the page renders the
+    keys the server offers — and that is worth checking, because it once did
+    not: DELIVERY_TARGET was added to EDITABLE and stayed invisible, so the
+    operator was told a setting had not been deployed when it had.
+    """
+    import re
+    from pathlib import Path
+
+    source = Path("app/web/static/js/admin.js").read_text()
+    block = re.search(r"const GROUPS = \[(.*?)\n  \];", source, re.S)
+    assert block, "GROUPS array not found in admin.js"
+    groups: dict[str, list[str]] = {}
+    for title, keys in re.findall(r"\['([^']+)',\s*\[(.*?)\]\]", block.group(1), re.S):
+        groups[title] = re.findall(r"'([A-Z_]+)'", keys)
+    return groups
+
+
+def test_every_editable_setting_is_placed_on_the_page():
+    """A key the server will accept must be one the operator can find."""
+    grouped = {key for keys in _settings_groups().values() for key in keys}
+    missing = sorted({item.key for item in routes_settings.EDITABLE} - grouped)
+    assert not missing, f"editable but not on the settings page: {', '.join(missing)}"
+
+
+def test_the_page_does_not_offer_settings_the_server_refuses():
+    """The reverse: a field that cannot be saved would be a trap."""
+    editable = {item.key for item in routes_settings.EDITABLE}
+    extra = sorted({key for keys in _settings_groups().values() for key in keys} - editable)
+    assert not extra, f"on the settings page but not editable: {', '.join(extra)}"
+
+
+def test_choosing_the_destination_is_editable(client, env_file):
+    """Section: messages must be re-pointable without an SSH session."""
+    save(client, {"DELIVERY_TARGET": "telegram", "TELEGRAM_TARGET_CHAT_ID": "@goldsignals"})
+    stored = read_env(str(env_file))
+    assert stored["DELIVERY_TARGET"] == "telegram"
+    assert stored["TELEGRAM_TARGET_CHAT_ID"] == "@goldsignals"
+
+
+def test_an_unknown_destination_is_refused(client, env_file):
+    save(client, {"DELIVERY_TARGET": "carrier-pigeon"})
+    assert "DELIVERY_TARGET" not in read_env(str(env_file))

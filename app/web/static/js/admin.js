@@ -257,7 +257,11 @@ async function renderBroadcast() {
   // The channel's display name is not worth a LINE round-trip on every page
   // load; the destination id identifies the group well enough for a preview.
   const botName = 'Signal Bot';
-  const groupLabel = config.line_destination || 'LINE group (not configured yet)';
+  const toTelegram = config.delivery_target === 'telegram';
+  const groupLabel =
+    config.delivery_destination ||
+    config.line_destination ||
+    (toTelegram ? 'Telegram channel (not configured yet)' : 'LINE group (not configured yet)');
 
   const search = el('input', {
     class: 'input',
@@ -310,7 +314,7 @@ async function renderBroadcast() {
   const view = state.broadcastView || 'preview';
   const body =
     view === 'preview'
-      ? linePreview(data.items, botName, groupLabel)
+      ? linePreview(data.items, botName, groupLabel, toTelegram)
       : el('div', { class: 'broadcast-list' }, data.items.map(broadcastDetail));
 
   renderShell(
@@ -334,7 +338,7 @@ async function renderBroadcast() {
  *
  * Oldest at the top, like a real conversation, so the API's newest-first order
  * is reversed here. */
-function linePreview(items, botName, groupLabel) {
+function linePreview(items, botName, groupLabel, toTelegram = false) {
   const chat = [];
   let lastDay = null;
   // When nothing was delivered the reason is the same for every message, so it
@@ -348,7 +352,7 @@ function linePreview(items, botName, groupLabel) {
       chat.push(el('div', { class: 'line-day' }, [el('span', { text: day })]));
       lastDay = day;
     }
-    chat.push(lineBubble(item, botName, when, { quiet: noneDelivered }));
+    chat.push(lineBubble(item, botName, when, { quiet: noneDelivered, toTelegram }));
   }
 
   return el('div', { class: 'line-preview' }, [
@@ -360,22 +364,29 @@ function linePreview(items, botName, groupLabel) {
     noneDelivered
       ? el('div', { class: 'line-banner' }, [
           el('strong', { text: t('Test mode. ') }),
-          'This is how the messages would look — none of them were actually posted to LINE.',
+          t('This is how the messages would look — none of them were actually posted.'),
         ])
       : null,
     el('div', { class: 'line-chat' }, chat),
+    // What happens to a photo depends on where the message is going, and a
+    // simulation that says the wrong one is worse than no simulation at all.
     el('p', { class: 'line-note small faint' }, [
-      'A mock-up of the LINE group, oldest first. Each bubble is the exact text the bridge pushes — the same ',
-      'string, character for character. Everything is sent as a text message, so a Telegram photo arrives as ',
-      el('code', { text: t('[photo]') }),
-      ' and the picture itself does not travel. An edit arrives as a new message prefixed ',
+      t('Oldest first. Each bubble is the exact text the bridge pushes — the same string, character for character. '),
+      ...(toTelegram
+        ? [t('The destination is a Telegram channel, so a photo is posted as the picture itself with this text as its caption.')]
+        : [
+            t('Everything is sent to LINE as a text message, so a Telegram photo arrives as '),
+            el('code', { text: t('[photo]') }),
+            t(' and the picture itself does not travel.'),
+          ]),
+      t(' An edit arrives as a new message prefixed '),
       el('code', { text: t('EDITED') }),
-      '; it never replaces the one before it.',
+      t('; it never replaces the one before it.'),
     ]),
   ]);
 }
 
-function lineBubble(item, botName, when, { quiet = false } = {}) {
+function lineBubble(item, botName, when, { quiet = false, toTelegram = false } = {}) {
   const undelivered = item.status !== 'SENT';
   const text = item.line_text || '';
 
@@ -400,7 +411,12 @@ function lineBubble(item, botName, when, { quiet = false } = {}) {
   const notes = [];
   if (item.has_media) {
     notes.push(
-      el('span', { class: 'line-notsent', text: t('the image itself is not forwarded — only this text') })
+      el('span', {
+        class: toTelegram ? 'line-note-ok' : 'line-notsent',
+        text: toTelegram
+          ? t('the picture is posted too, with this text as its caption')
+          : t('the image itself is not forwarded — only this text'),
+      })
     );
   }
   if (undelivered && !quiet) {
@@ -753,7 +769,12 @@ async function renderSystem() {
 async function renderSettings() {
   const data = await adminApi('/api/admin/settings/editable');
 
+  /* Grouping is presentation only. The server's allow-list decides what may be
+   * edited, so a key it serves must always reach the page — see the ungrouped
+   * catch-all below, which exists because adding DELIVERY_TARGET to the
+   * allow-list without touching this array made it invisible. */
   const GROUPS = [
+    ['Where messages go', ['DELIVERY_TARGET', 'TELEGRAM_TARGET_CHAT_ID']],
     ['Telegram', ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_SOURCE_CHAT_ID']],
     ['LINE', ['LINE_CHANNEL_ACCESS_TOKEN', 'LINE_GROUP_ID', 'LINE_ENABLED', 'DRY_RUN',
               'ADD_EDITED_PREFIX', 'LINE_EDIT_PREFIX']],
@@ -764,6 +785,12 @@ async function renderSettings() {
 
   const byKey = Object.fromEntries(data.items.map((item) => [item.key, item]));
   const inputs = {};
+
+  // Anything the server offers that no group claims. Better an unsorted field
+  // than a setting the operator cannot find and assumes was never deployed.
+  const grouped = new Set(GROUPS.flatMap(([, keys]) => keys));
+  const ungrouped = data.items.map((item) => item.key).filter((key) => !grouped.has(key));
+  if (ungrouped.length) GROUPS.push(['Other settings', ungrouped]);
 
   function control(item) {
     if (item.kind === 'bool') {
@@ -796,9 +823,9 @@ async function renderSettings() {
     });
   }
 
-  const sections = GROUPS.map(([title, keys]) =>
+  const sections = GROUPS.filter(([, keys]) => keys.some((key) => byKey[key])).map(([title, keys]) =>
     el('section', { class: 'settings-group' }, [
-      el('h3', { text: title }),
+      el('h3', { text: t(title) }),
       ...keys.filter((key) => byKey[key]).map((key) => {
         const item = byKey[key];
         const input = control(item);
@@ -846,15 +873,20 @@ async function renderSettings() {
     }
   };
 
-  const testLine = el('button', { class: 'btn', text: t('Test LINE now') });
+  // The test checks whichever destination is configured, so the button must not
+  // promise LINE when the messages are going to a Telegram channel.
+  const targetNow = (byKey.DELIVERY_TARGET && byKey.DELIVERY_TARGET.value) || 'line';
+  const targetName = targetNow === 'telegram' ? 'Telegram' : 'LINE';
+  const testLine = el('button', { class: 'btn', text: t('Test {target} now', { target: targetName }) });
   testLine.onclick = async () => {
     clear(box);
     testLine.disabled = true;
     try {
       const result = await adminApi('/api/admin/line/test', { method: 'POST' });
+      const name = result.target === 'telegram' ? 'Telegram' : 'LINE';
       box.append(
         el('div', { class: `notice ${result.ok ? 'ok' : 'bad'}`, text:
-          result.ok ? `LINE ok — ${result.detail}` : `LINE failed — ${result.detail}` })
+          result.ok ? `${name} ok — ${result.detail}` : `${name} failed — ${result.detail}` })
       );
     } catch (error) {
       box.append(el('div', { class: 'notice bad', text: error.message }));
@@ -877,6 +909,8 @@ async function renderSettings() {
 }
 
 const SETTING_HINTS = {
+  DELIVERY_TARGET: 'Which app the messages are posted into.',
+  TELEGRAM_TARGET_CHAT_ID: 'The channel to post into, e.g. @mychannel. Only used when the target is telegram.',
   TELEGRAM_API_ID: 'From my.telegram.org → API development tools.',
   TELEGRAM_API_HASH: 'From the same page. Changing it needs a fresh sign-in.',
   TELEGRAM_SOURCE_CHAT_ID: 'The group the signals are read from, e.g. -1001234567890.',

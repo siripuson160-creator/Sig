@@ -496,6 +496,17 @@ td.right, th.right { text-align: right; }
   align-self: flex-start;
 }
 
+/* The same slot, for when the media does travel: a statement of fact rather
+ * than a warning, so it must not read like the "not forwarded" note. */
+.line-note-ok {
+  font-size: 11px;
+  color: #fff;
+  background: rgba(29, 122, 72, 0.55);
+  border-radius: 4px;
+  padding: 2px 7px;
+  align-self: flex-start;
+}
+
 .line-banner {
   background: #f7f8fa;
   border-bottom: 1px solid #dfe3e8;

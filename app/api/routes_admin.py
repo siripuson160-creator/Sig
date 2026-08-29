@@ -453,8 +453,10 @@ async def read_settings(identity: AdminDep) -> dict:
         "line_enabled": settings.line_enabled,
         "add_edited_prefix": settings.add_edited_prefix,
         "line_edit_prefix": settings.line_edit_prefix,
-        # Only for labelling the LINE preview; never the token itself.
+        # Only for labelling the delivery preview; never the token itself.
         "line_destination": settings.line_destination,
+        "delivery_target": settings.delivery_target,
+        "delivery_destination": settings.delivery_destination,
         "pip_size": settings.pip_size,
         "result_source": settings.result_source,
         "line_max_attempts": settings.line_max_attempts,
