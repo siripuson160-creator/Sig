@@ -491,10 +491,27 @@ The ones worth thinking about:
 | `RESULT_MODE` | `BEST_TP` | SL after a TP books at that TP |
 | `ENTRY_FILL_WINDOW_HOURS` | 12 | After this, an unfilled signal is cancelled |
 | `SIGNAL_EXPIRY_HOURS` | 72 | After this, an open trade is marked to market |
-| `POINT_SIZE` | 1.0 | 1 point of price movement |
+| `POINT_SIZE` | `0.01` | The unit statistics are published in (the MT4/MT5 gold point) |
+| `PIP_SIZE` | `0.1` | What one pip is worth in price |
 | `ADMIN_PASSWORD` | *(empty)* | Empty disables `/admin` entirely |
 | `DRY_RUN` | `false` | `true` stores everything but sends nothing to LINE |
 | `LINE_MAX_ATTEMPTS` | `3` | Retries wait 2s, 5s, 10s, then FAILED |
+
+### How a pip figure becomes a published number
+
+Thai desks quote gold in pips and read them at **ten points to the pip**: a
+source posting `+70Pips` is understood by its members as **+700**, and that is
+what the dashboard shows. `PIP_SIZE` over `POINT_SIZE` is what encodes it —
+`0.1 / 0.01 = 10`.
+
+Keeping it as a pair is fragile: change one without the other and every
+published figure is out by a factor of ten, while still looking entirely
+plausible. So the ratio is checked at every start. An install still carrying
+the pre-convention `POINT_SIZE=1.0` with no `PIP_SIZE` beside it is repaired
+once, with the change logged; any other pair that does not hold the convention
+is reported in the log and on the settings page, naming what `+70Pips` would
+actually publish as. Setting `PIP_SIZE` yourself opts out of the repair for
+good — a deliberate choice is left alone.
 
 ---
 

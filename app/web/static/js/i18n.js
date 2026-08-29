@@ -175,7 +175,16 @@ const TH = {
   'Edited messages': 'ข้อความที่ถูกแก้ไข',
   'Test LINE credentials': 'ทดสอบการเชื่อมต่อ LINE',
   'Test LINE now': 'ทดสอบ LINE เดี๋ยวนี้',
+  'Test {target} now': 'ทดสอบ {target} เดี๋ยวนี้',
   'Save and restart': 'บันทึกแล้วรีสตาร์ต',
+
+  // ------------------------------------------------ settings group titles
+  'Where messages go': 'ส่งข้อความไปที่ไหน',
+  'Telegram': 'Telegram',
+  'LINE': 'LINE',
+  'Results and prices': 'ผลและราคา',
+  'Dashboard': 'แดชบอร์ด',
+  'Other settings': 'ค่าอื่นๆ',
   'Settings in force': 'ค่าที่ใช้งานอยู่',
   'These are the live settings. ': 'นี่คือค่าที่ระบบใช้งานจริงอยู่ ',
   'Search text or message id…': 'ค้นหาข้อความ หรือรหัสข้อความ…',
@@ -190,12 +199,25 @@ const TH = {
     'ส่วนประกอบที่ไม่รายงานตัวเกินสองนาทีจะแสดงเป็น DOWN',
   'Available providers': 'ผู้ให้บริการที่มีให้เลือก',
 
-  // ------------------------------------------------------- LINE mock-up
+  // -------------------------------------------------- delivery mock-up
   'Test mode. ': 'โหมดทดสอบ ',
+  'This is how the messages would look — none of them were actually posted.':
+    'นี่คือหน้าตาของข้อความ — แต่ยังไม่มีข้อความไหนถูกส่งออกจริง',
   'the image itself is not forwarded — only this text':
     'รูปภาพไม่ถูกส่งต่อ — ส่งเฉพาะข้อความนี้',
+  'the picture is posted too, with this text as its caption':
+    'รูปภาพถูกส่งไปด้วย โดยใช้ข้อความนี้เป็นคำบรรยายใต้ภาพ',
   'nothing to send — this message produces no LINE post':
     'ไม่มีอะไรให้ส่ง — ข้อความนี้ไม่สร้างโพสต์ใน LINE',
+  'Oldest first. Each bubble is the exact text the bridge pushes — the same string, character for character. ':
+    'เรียงจากเก่าไปใหม่ ทุกกล่องคือข้อความที่ระบบส่งออกจริง ตรงกันทุกตัวอักษร ',
+  'The destination is a Telegram channel, so a photo is posted as the picture itself with this text as its caption.':
+    'ปลายทางเป็นแชนแนล Telegram รูปภาพจึงถูกส่งเป็นรูปจริง โดยมีข้อความนี้เป็นคำบรรยายใต้ภาพ',
+  'Everything is sent to LINE as a text message, so a Telegram photo arrives as ':
+    'ทุกอย่างถูกส่งเข้า LINE เป็นข้อความล้วน รูปภาพจาก Telegram จึงมาถึงเป็น ',
+  ' and the picture itself does not travel.': ' และตัวรูปภาพไม่ถูกส่งไปด้วย',
+  ' An edit arrives as a new message prefixed ': ' ข้อความที่ถูกแก้ไขจะมาเป็นข้อความใหม่ นำหน้าด้วย ',
+  '; it never replaces the one before it.': ' ไม่ได้ไปทับข้อความเดิม',
 
   // ------------------------------------------------------------- ranges
   'Today': 'วันนี้',
@@ -242,9 +264,12 @@ const TH = {
   'Saved: {keys}. ': 'บันทึกแล้ว: {keys} ',
   'The service is restarting — give it about ten seconds, then reload this page.':
     'ระบบกำลังรีสตาร์ต รอประมาณสิบวินาทีแล้วรีเฟรชหน้านี้',
+  'Which app the messages are posted into.': 'เลือกว่าจะส่งข้อความไปที่แอปไหน',
+  'The channel to post into, e.g. @mychannel. Only used when the target is telegram.':
+    'แชนแนลที่จะส่งเข้าไป เช่น @mychannel ใช้เมื่อเลือกปลายทางเป็น telegram เท่านั้น',
   'From my.telegram.org → API development tools.': 'เอามาจาก my.telegram.org → API development tools',
-  'From the same page. Changing it needs a fresh sign-in.':
-    'จากหน้าเดียวกัน ถ้าเปลี่ยนต้องล็อกอิน Telegram ใหม่',
+  'From the same page. Changing it invalidates the login — re-run "python -m app.cli login" on the server afterwards.':
+    'จากหน้าเดียวกัน ถ้าเปลี่ยนค่านี้ การล็อกอินเดิมจะใช้ไม่ได้ ต้องรัน "python -m app.cli login" บนเซิร์ฟเวอร์ใหม่',
   'The group the signals are read from, e.g. -1001234567890.':
     'กลุ่มที่ระบบอ่านสัญญาณ เช่น -1001234567890',
   'Messaging API → Channel access token (long-lived).':

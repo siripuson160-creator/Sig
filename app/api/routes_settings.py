@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit, setup_state
+from app import audit, setup_state, units
 from app.api.security import AdminDep
 from app.config import settings
 from app.db.models import AuditEvent
@@ -93,19 +93,44 @@ def _mask(value: str) -> str:
     return f"{value[:4]}…{value[-4:]}"
 
 
+def _in_force(item: Editable, stored: dict[str, str]) -> str:
+    """The value the system is actually running on, as text.
+
+    Not the same as what the file says. A key absent from the .env is not
+    unset — it is running on its default, and every EDITABLE key names a
+    field on ``settings`` (lowercased) that holds it.
+
+    Reading only the file was a real bug: ADD_EDITED_PREFIX defaults to true
+    but is usually absent, so the page drew it Off, and saving any unrelated
+    change wrote that Off back and silently stopped edits being marked.
+    """
+    raw = stored.get(item.key) or os.environ.get(item.key) or ""
+    if raw.strip():
+        return raw.strip()
+
+    value = getattr(settings, item.key.lower(), None)
+    if isinstance(value, bool):
+        return "true" if value else "false"     # False is a value, not an absence
+    if value is None or not value:
+        return ""                               # 0 and "" both mean "not configured"
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
+
+
 def current_values() -> list[dict[str, Any]]:
     """What the page renders. Secrets come back masked, never in full."""
     stored = read_env(setup_state.ENV_PATH)
     rows = []
     for item in EDITABLE:
-        raw = stored.get(item.key, os.environ.get(item.key, ""))
+        raw = _in_force(item, stored)
         rows.append(
             {
                 "key": item.key,
                 "kind": item.kind,
                 "choices": item.choices,
                 "secret": item.secret,
-                "is_set": bool(raw.strip()),
+                "is_set": bool(raw),
                 "value": _mask(raw) if item.secret else raw,
             }
         )
@@ -148,6 +173,9 @@ async def read_editable(identity: AdminDep) -> dict:
     return {
         "items": current_values(),
         "env_path": os.path.abspath(setup_state.ENV_PATH),
+        # A pair that publishes pip figures ten times off still looks credible,
+        # so it is said on the page where those two numbers are edited.
+        "warnings": [w for w in (units.convention_warning(),) if w],
         "note": "Saving rewrites the settings file and restarts the service, so what is "
         "running is always what is on disk. Leave a secret blank to keep the stored value.",
     }
@@ -170,7 +198,11 @@ async def write_editable(
         value = _clean(key, raw)
         if value is None:
             continue
-        if before.get(key, "") == value:
+        # Compared against the value in force, not against the file. A default
+        # that was never written down is not a change when it is submitted
+        # back unaltered, and recording it as one would put the operator's name
+        # on edits they did not make.
+        if _in_force(_BY_KEY[key], before) == value:
             continue
         update_env_value(setup_state.ENV_PATH, key, value)
         changed.append(key)
