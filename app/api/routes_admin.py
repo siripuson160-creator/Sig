@@ -123,7 +123,12 @@ async def status(identity: AdminDep, session: AsyncSession = Depends(get_session
         "database": database_ok,
         "delivery": counts,
         "open_signals": int(open_signals),
-        "line_configured": bool(settings.line_channel_access_token and settings.line_destination),
+        "delivery_target": settings.delivery_target,
+        "delivery_configured": (
+            bool(settings.telegram_target_chat_id)
+            if settings.delivery_target == "telegram"
+            else bool(settings.line_channel_access_token and settings.line_destination)
+        ),
         "line_enabled": settings.line_enabled,
         "dry_run": settings.dry_run,
         "telegram_source": settings.source_chat_ids,
@@ -426,11 +431,17 @@ async def statistics(
 
 
 @router.post("/line/test")
-async def line_test(identity: AdminDep) -> dict:
-    """Verify the LINE credentials without posting to the group."""
-    async with LineClient() as client:
+async def delivery_test(identity: AdminDep) -> dict:
+    """Verify the configured destination without posting to it.
+
+    Kept at the historical /line/test path so existing scripts and the admin
+    page keep working after the destination became a choice.
+    """
+    from app.delivery import get_sender
+
+    async with get_sender() as client:
         ok, detail = await client.verify()
-    return {"ok": ok, "detail": detail}
+    return {"ok": ok, "detail": detail, "target": settings.delivery_target}
 
 
 @router.get("/settings")

@@ -215,7 +215,7 @@ async function renderOverview() {
       panel(t('Connections'), [
         el('div', { class: 'detail-grid' }, [
           kv(t('Telegram source'), (status.telegram_source || []).join(', ') || 'not set'),
-          kv(t('LINE configured'), status.line_configured ? 'yes' : 'no', status.line_configured ? 'pos' : 'neg'),
+          kv(t('LINE configured'), status.delivery_configured ? 'yes' : 'no', status.delivery_configured ? 'pos' : 'neg'),
           kv(t('Price provider'), `${status.price_provider.name}${status.price_provider.available ? '' : ' (no data)'}`),
           kv(t('Timezone'), status.timezone),
           kv(t('Signed in as'), status.signed_in_as),

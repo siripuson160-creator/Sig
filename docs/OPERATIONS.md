@@ -270,6 +270,44 @@ PUBLIC_BROADCAST_ENABLED=true
 Off by default, deliberately: the signal text is what members pay for, and the
 public dashboard is readable by anyone who has the URL.
 
+### Where messages are delivered — DELIVERY_TARGET
+
+Two destinations, one at a time:
+
+| `DELIVERY_TARGET` | Needs | Carries images | Notes |
+|---|---|---|---|
+| `telegram` | a channel the signed-in account can post in | **yes** | no second token |
+| `line` (default) | a channel token and a group id | no | text only |
+
+**Telegram is the simpler and better-behaved of the two.** The account that
+reads the source group is the one that posts, so there is no bot to create and
+no token to obtain — and it is the only credential that can *see* the source
+message, which is what makes forwarding the chart images possible. A bot could
+never do that: it cannot read a group it is not in.
+
+Set it up:
+
+```bash
+DELIVERY_TARGET=telegram
+TELEGRAM_TARGET_CHAT_ID=@yourchannel     # or the numeric -100… id
+```
+
+Then make the signed-in account an **admin of that channel** with permission to
+post. Posts appear under the channel's own name, exactly as a bot's would.
+
+Finding the id: a public channel works by `@username`. For a private one,
+forward any of its messages to `@userinfobot`, which replies with the numeric
+id. Either way there is no webhook dance — the LINE group id is the awkward
+one, not this.
+
+**LINE OpenChat is not an option for either destination.** The LINE Messaging
+API supports groups, rooms and one-to-one chats only; OpenChat has no bot
+support and no id to send to. A Telegram channel is the closest thing to an
+OpenChat that can actually be delivered into.
+
+**Admin → Settings** has both, and the **Test** button checks whichever is in
+force.
+
 ### Changing settings from the admin page
 
 `/admin` → **Settings** edits the connection settings without an SSH session:

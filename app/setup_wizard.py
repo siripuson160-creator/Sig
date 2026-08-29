@@ -199,6 +199,16 @@ TELEGRAM_SESSION={get('TELEGRAM_SESSION', './data/telegram.session')}
 TELEGRAM_SOURCE_CHAT_ID={get('TELEGRAM_SOURCE_CHAT_ID', '')}
 TELEGRAM_EXTRA_CHAT_IDS={get('TELEGRAM_EXTRA_CHAT_IDS', '')}
 
+# ------------------------------------------------------- destination
+# Where forwarded messages go:
+#   telegram = a Telegram channel, posted by the account already signed in.
+#              Needs no second token and carries the source's images.
+#   line     = a LINE group, via the Messaging API. Text only.
+DELIVERY_TARGET={get('DELIVERY_TARGET', 'line')}
+# For DELIVERY_TARGET=telegram: @channelname or the numeric -100… id.
+# The signed-in account must be an admin of that channel.
+TELEGRAM_TARGET_CHAT_ID={get('TELEGRAM_TARGET_CHAT_ID', '')}
+
 # --------------------------------------------------------------- line
 LINE_CHANNEL_ACCESS_TOKEN={get('LINE_CHANNEL_ACCESS_TOKEN', '')}
 LINE_GROUP_ID={get('LINE_GROUP_ID', get('LINE_TARGET_ID', ''))}

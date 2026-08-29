@@ -54,6 +54,9 @@ class Editable:
 
 #: The allow-list. Adding a key here is the only way to make it editable.
 EDITABLE: list[Editable] = [
+    # Where messages go
+    Editable("DELIVERY_TARGET", "choice", choices=["line", "telegram"]),
+    Editable("TELEGRAM_TARGET_CHAT_ID"),
     # Telegram
     Editable("TELEGRAM_API_ID", "number"),
     Editable("TELEGRAM_API_HASH", secret=True),
